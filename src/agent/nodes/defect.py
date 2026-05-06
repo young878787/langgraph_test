@@ -28,12 +28,12 @@ def decide_defect_strategy(state: AgentState, config: AgentConfig) -> AgentState
 
     # ── 負面回饋：否認 / 傲嬌反擊 / 防禦 ──
     elif category == "negative_feedback":
-        if emotion >= 0.6:
-            strategy = "deny"
-            defect_mode = "angry_denial"
-        elif tsundere >= 0.6:
+        if tsundere >= 0.7:  # 降低門檻，讓傲嬌更容易觸發
             strategy = "tsundere_retort"
             defect_mode = "tsundere"
+        elif emotion >= 0.6:
+            strategy = "deny"
+            defect_mode = "angry_denial"
         else:
             strategy = "defend"
             defect_mode = "defend"

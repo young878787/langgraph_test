@@ -21,6 +21,13 @@ DEFAULT_NEGATIVE_FEEDBACK = [
     "fail",
     "ugly",
     "small",
+    "笨蛋",
+    "白痴",
+    "廢物",
+    "沒用",
+    "爛",
+    "差勁",
+    "討厭",
 ]
 
 DEFAULT_AVOID_MARKERS = [
@@ -87,9 +94,9 @@ class AgentConfig:
     defect_intensity: float = 0.7
     traits: Dict[str, float] = field(
         default_factory=lambda: {
-            "tsundere": 0.7,    # 傲嬌：被罵就反擊
+            "tsundere": 0.85,   # 傲嬌：被罵就反擊（提高為主要特質）
             "yandere": 0.4,     # 病嬌：情緒高時過度執著
-            "excuse_prone": 0.8,  # 愛找藉口：被要求做事就找理由推托
+            "excuse_prone": 0.75,  # 愛找藉口：被要求做事就找理由推托
             "liar": 0.7,          # 愛說謊：被質疑時一本正經地胡說
             "rambler": 0.6,       # 廢話王：普通對話時跑題、扯哲學
         }

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import urllib.request
+import urllib.error
+import time
 
 from agent.config import AgentConfig
 
@@ -53,29 +55,86 @@ class OpenRouterProvider(LLMProvider):
         if not self.api_key:
             raise RuntimeError("OPENROUTER_API_KEY is required for OpenRouter.")
 
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": temperature,
-        }
-        data = json.dumps(payload).encode("utf-8")
-        request = urllib.request.Request(
-            "https://openrouter.ai/api/v1/chat/completions",
-            data=data,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=60) as response:
-            body = response.read()
-        decoded = json.loads(body.decode("utf-8"))
-        content = decoded["choices"][0]["message"].get("content") or ""
-        return content.strip()
+        # 重試邏輯：最多重試3次
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                payload = {
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "temperature": temperature,
+                }
+                data = json.dumps(payload).encode("utf-8")
+                
+                # 設定請求
+                request = urllib.request.Request(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    data=data,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "LangGraph-Agent/1.0",
+                    },
+                    method="POST",
+                )
+                
+                # 發送請求並讀取響應
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    # 檢查狀態碼
+                    if response.status != 200:
+                        raise urllib.error.HTTPError(
+                            request.full_url,
+                            response.status,
+                            f"HTTP {response.status}",
+                            response.headers,
+                            response
+                        )
+                    
+                    # 讀取響應內容
+                    body = response.read()
+                    if not body:
+                        raise ValueError("Empty response body")
+                    
+                    # 解析 JSON
+                    decoded = json.loads(body.decode("utf-8"))
+                    
+                    # 檢查響應格式
+                    if "choices" not in decoded or not decoded["choices"]:
+                        raise ValueError(f"Invalid response format: {decoded}")
+                    
+                    content = decoded["choices"][0]["message"].get("content") or ""
+                    result = content.strip()
+                    
+                    # 如果返回空字符串，重試
+                    if not result:
+                        if attempt < max_retries - 1:
+                            time.sleep(1)  # 等待1秒後重試
+                            continue
+                        return "（模型未返回内容）"
+                    
+                    return result
+                    
+            except urllib.error.HTTPError as e:
+                # HTTP 錯誤，檢查是否需要重試
+                if attempt < max_retries - 1 and e.code in [429, 500, 502, 503, 504]:
+                    time.sleep(2 ** attempt)  # 指數退避
+                    continue
+                raise RuntimeError(f"OpenRouter API HTTP Error {e.code}: {e.reason}")
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as e:
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+                raise RuntimeError(f"OpenRouter API request failed: {str(e)}")
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+                raise e
+        
+        return "（所有重試都失敗）"
 
 
 class GoogleAIStudioProvider(LLMProvider):
