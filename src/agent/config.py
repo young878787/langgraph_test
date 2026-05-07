@@ -106,7 +106,7 @@ class AgentConfig:
         default_factory=lambda: os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
     )
     google_model: str = field(
-        default_factory=lambda: os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
+        default_factory=lambda: os.getenv("GOOGLE_MODEL", "gemma-4-31b-it")
     )
     temperature: float = 0.7
     retry_temperature: float = 0.2

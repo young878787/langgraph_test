@@ -25,4 +25,4 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
         elif not is_on_strategy(state, response, config):
             response = fallback_response(state)
 
-    return {"response": response}
+    return {"response": response, "system_prompt": system_prompt}

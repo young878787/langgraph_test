@@ -5,7 +5,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any
 
-# 設定 UTF-8 輸出編碼以支持中文
+# 設定 UTF-8 輸出編碼以支援中文
 if sys.stdout.encoding != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
@@ -18,11 +18,14 @@ if str(src_path) not in sys.path:
 from agent.config import AgentConfig
 from agent.graph import build_graph, new_state
 from agent.scenario_runner import SCENARIOS as BUILTIN_SCENARIOS
+from agent.logger import init_logs, log_error, log_prompt
 
 
 def process_single_scenario(args: tuple) -> Dict[str, Any]:
     """處理單個場景（用於並發執行）"""
     idx, prompt = args
+    config = None
+    state = None
     
     try:
         # 每個場景使用獨立的 config 和 state
@@ -32,6 +35,24 @@ def process_single_scenario(args: tuple) -> Dict[str, Any]:
         
         state["user_input"] = prompt
         state = graph.invoke(state)
+        
+        # 記錄 prompt 日誌（無論成功或失敗都記錄）
+        try:
+            log_prompt(
+                scenario_id=idx,
+                user_input=prompt,
+                system_prompt=str(state.get("system_prompt", "")),
+                response=state.get("response", ""),
+                strategy=state.get("strategy", "unknown"),
+                tone=state.get("tone", "unknown"),
+                defect_mode=state.get("defect_mode", "none"),
+                emotion=state.get("emotion", 0.0),
+                model=config.google_model if config.backend == "google" else config.openrouter_model,
+                temperature=config.temperature,
+            )
+        except Exception as log_err:
+            # 日誌記錄失敗不影響主流程
+            pass
         
         return {
             "idx": idx,
@@ -43,7 +64,37 @@ def process_single_scenario(args: tuple) -> Dict[str, Any]:
             "emotion": state.get("emotion", 0.0),
         }
     except Exception as e:
-        # 返回錯誤信息
+        # 記錄錯誤日誌
+        try:
+            log_error(
+                module="main",
+                function="process_single_scenario",
+                error=e,
+                context={"scenario_id": idx, "prompt": prompt}
+            )
+        except Exception:
+            pass
+        
+        # 即使失敗也嘗試記錄 prompt 日誌（記錄錯誤資訊）
+        try:
+            if config is None:
+                config = AgentConfig()
+            log_prompt(
+                scenario_id=idx,
+                user_input=prompt,
+                system_prompt="",
+                response=f"處理失敗: {str(e)}",
+                strategy="error",
+                tone="error",
+                defect_mode="error",
+                emotion=0.0,
+                model=config.google_model if config.backend == "google" else config.openrouter_model,
+                temperature=config.temperature,
+            )
+        except Exception:
+            pass
+        
+        # 返回錯誤資訊
         return {
             "idx": idx,
             "prompt": prompt,
@@ -95,7 +146,7 @@ def quick_validation():
         completed_results = {}
         next_idx_to_print = 1
         
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=2) as executor:
             # 提交所有任務
             future_to_idx = {
                 executor.submit(process_single_scenario, task): task[0]
@@ -148,32 +199,66 @@ def quick_validation():
         for idx, prompt in enumerate(scenarios, 1):
             print(f"\n⏳ 場景 {idx}/{len(scenarios)} 處理中...")
             
-            state["user_input"] = prompt
-            state = graph.invoke(state)
+            try:
+                state["user_input"] = prompt
+                state = graph.invoke(state)
 
-            curr_emotion = state.get("emotion", 0.0)
-            emotion_delta = curr_emotion - prev_emotion
-            strategy = state.get("strategy", "unknown")
-            tone = state.get("tone", "unknown")
-            defect_mode = state.get("defect_mode", "none")
-            response = state.get("response", "")
+                curr_emotion = state.get("emotion", 0.0)
+                emotion_delta = curr_emotion - prev_emotion
+                strategy = state.get("strategy", "unknown")
+                tone = state.get("tone", "unknown")
+                defect_mode = state.get("defect_mode", "none")
+                response = state.get("response", "")
 
-            # 情緒變化指示符
-            if emotion_delta > 0.05:
-                emotion_indicator = "📈"
-            elif emotion_delta < -0.05:
-                emotion_indicator = "📉"
-            else:
-                emotion_indicator = "➡️"
+                # 记录 prompt 日志
+                try:
+                    log_prompt(
+                        scenario_id=idx,
+                        user_input=prompt,
+                        system_prompt=str(state.get("system_prompt", "")),
+                        response=response,
+                        strategy=strategy,
+                        tone=tone,
+                        defect_mode=defect_mode,
+                        emotion=curr_emotion,
+                        model=config.google_model if config.backend == "google" else config.openrouter_model,
+                        temperature=config.temperature,
+                    )
+                except Exception as log_err:
+                    pass
 
-            # 立即輸出結果
-            print(f"\n【場景 {idx}】策略={strategy:<18} 語氣={tone:<15} 缺陷={defect_mode}")
-            print(f"💬 輸入: {prompt}")
-            print(f"🎭 情緒: {curr_emotion:.3f} {emotion_indicator} (變化: {emotion_delta:+.3f})")
-            print(f"🤖 回應: {response}")
-            print("-" * 80)
+                # 情緒變化指示符
+                if emotion_delta > 0.05:
+                    emotion_indicator = "📈"
+                elif emotion_delta < -0.05:
+                    emotion_indicator = "📉"
+                else:
+                    emotion_indicator = "➡️"
 
-            prev_emotion = curr_emotion
+                # 立即輸出結果
+                print(f"\n【場景 {idx}】策略={strategy:<18} 語氣={tone:<15} 缺陷={defect_mode}")
+                print(f"💬 輸入: {prompt}")
+                print(f"🎭 情緒: {curr_emotion:.3f} {emotion_indicator} (變化: {emotion_delta:+.3f})")
+                print(f"🤖 回應: {response}")
+                print("-" * 80)
+
+                prev_emotion = curr_emotion
+                    
+            except Exception as e:
+                # 记录错误日志
+                try:
+                    log_error(
+                        module="main",
+                        function="quick_validation",
+                        error=e,
+                        context={"scenario_id": idx, "prompt": prompt}
+                    )
+                except Exception:
+                    pass
+                
+                # 输出错误信息
+                print(f"❌ 場景 {idx} 失敗: {str(e)}")
+                print("-" * 80)
 
         print(f"\n✅ 完成 {len(scenarios)} 個場景測試")
         print(f"📊 最終情緒值: {state.get('emotion', 0.0):.3f}")
@@ -192,6 +277,9 @@ def interactive_chat():
     print(f"🔧 使用後端: {config.backend}")
     graph = build_graph(config)
     state = new_state(config)
+    
+    # 互動模式的場景計數器
+    chat_counter = 0
 
     while True:
         try:
@@ -201,17 +289,52 @@ def interactive_chat():
             if user_input.lower() in ['quit', 'exit']:
                 break
 
+            chat_counter += 1
             state["user_input"] = user_input
             state = graph.invoke(state)
             response = state.get("response", "")
+            
+            # 记录互動模式的 prompt 日志
+            try:
+                log_prompt(
+                    scenario_id=chat_counter,
+                    user_input=user_input,
+                    system_prompt=str(state.get("system_prompt", "")),
+                    response=response,
+                    strategy=state.get("strategy", "unknown"),
+                    tone=state.get("tone", "unknown"),
+                    defect_mode=state.get("defect_mode", "none"),
+                    emotion=state.get("emotion", 0.0),
+                    model=config.google_model if config.backend == "google" else config.openrouter_model,
+                    temperature=config.temperature,
+                )
+            except Exception as log_err:
+                pass
+            
             print(f"\n🤖 AI: {response}")
 
         except KeyboardInterrupt:
             break
+        except Exception as e:
+            # 记录错误日志
+            try:
+                log_error(
+                    module="main",
+                    function="interactive_chat",
+                    error=e,
+                    context={"user_input": user_input if 'user_input' in locals() else "unknown"}
+                )
+            except Exception:
+                pass
+            print(f"\n❌ 錯誤: {str(e)}")
 
 
 def main():
     """主程式入口"""
+    # 初始化日志（每次启动清空并重新创建）
+    init_logs()
+    print("📝 日志系统已初始化 (logs/error.log, logs/prompts.log)")
+    
     print("\n" + "=" * 70)
     print("🎭 缺陷人格 AI - 調整驗證工具")
     print("=" * 70)

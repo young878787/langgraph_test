@@ -16,8 +16,15 @@ def writeback(state: AgentState) -> AgentState:
     emotion = state.get("emotion", 0.0)
     history_summary = f"last_strategy={strategy}; emotion={emotion:.2f}; trigger={trigger or 'none'}"
 
-    return {
+    # 保留 system_prompt 和其他欄位
+    result = {
         "strategy_history": history,
         "trigger_counters": trigger_counters,
         "history_summary": history_summary,
     }
+    
+    # 確保 system_prompt 被保留
+    if "system_prompt" in state:
+        result["system_prompt"] = state["system_prompt"]
+    
+    return result

@@ -40,6 +40,10 @@ class AgentState(TypedDict, total=False):
     judge_source: JudgeSource
     # 搞笑缺陷模式：記錄本輪觸發了哪種缺陷模式以便 debug
     defect_mode: str
+    # 系統提示詞：由 response 節點生成並存儲，用於日誌記錄
+    system_prompt: str
+    # 系統提示詞：記錄生成回應時使用的系統提示詞
+    system_prompt: str
 
 
 def initial_state(config: AgentConfig) -> AgentState:
