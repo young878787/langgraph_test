@@ -51,6 +51,10 @@ class AgentState(TypedDict, total=False):
     consecutive_same_strategy: int
     emotion_jitter: float
     burst_pending: bool
+    conversation_history: List[Dict[str, str]]
+    turn_count: int
+    memory_enabled: bool
+    mode: str
 
 
 def initial_state(config: AgentConfig) -> AgentState:
@@ -68,4 +72,8 @@ def initial_state(config: AgentConfig) -> AgentState:
         "consecutive_same_strategy": 0,
         "emotion_jitter": config.emotion_jitter,
         "burst_pending": False,
+        "conversation_history": [],
+        "turn_count": 0,
+        "memory_enabled": config.memory_enabled,
+        "mode": "single",
     }

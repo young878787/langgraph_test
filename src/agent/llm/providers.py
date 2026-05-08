@@ -5,7 +5,7 @@ import os
 import urllib.request
 import urllib.error
 import time
-from typing import Generator
+from typing import Generator, List
 
 from google import genai
 from google.genai import types
@@ -86,6 +86,15 @@ class LLMProvider:
     def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float) -> Generator[str, None, None]:
         raise NotImplementedError
 
+    def generate_with_history(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        conversation_history: List[dict] = None,
+    ) -> str:
+        raise NotImplementedError
+
 
 class MockProvider(LLMProvider):
     def generate(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
@@ -126,25 +135,22 @@ class MockProvider(LLMProvider):
             yield char
             time.sleep(0.02 * random.random())
 
+    def generate_with_history(self, system_prompt, user_prompt, temperature, conversation_history=None):
+        return self.generate(system_prompt, user_prompt, temperature)
+
 
 class OpenRouterProvider(LLMProvider):
     def __init__(self, api_key: str, model: str) -> None:
         self.api_key = api_key
         self.model = model
 
-    def generate(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
-        if not self.api_key:
-            raise RuntimeError("OPENROUTER_API_KEY is required for OpenRouter.")
-
+    def _make_request(self, messages: List[dict], temperature: float) -> str:
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 payload = {
                     "model": self.model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
+                    "messages": messages,
                     "temperature": temperature,
                 }
                 data = json.dumps(payload).encode("utf-8")
@@ -191,14 +197,31 @@ class OpenRouterProvider(LLMProvider):
                     time.sleep(1)
                     continue
                 raise e
-
         return "（所有重試都失敗）"
+
+    def generate(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
+        if not self.api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is required for OpenRouter.")
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        return self._make_request(messages, temperature)
 
     def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float) -> Generator[str, None, None]:
         result = self.generate(system_prompt, user_prompt, temperature)
         for char in result:
             yield char
             time.sleep(0.01)
+
+    def generate_with_history(self, system_prompt, user_prompt, temperature, conversation_history=None):
+        messages = [{"role": "system", "content": system_prompt}]
+        if conversation_history:
+            for entry in conversation_history:
+                role = "user" if entry["role"] == "user" else "assistant"
+                messages.append({"role": role, "content": entry["content"]})
+        messages.append({"role": "user", "content": user_prompt})
+        return self._make_request(messages, temperature)
 
 
 class GoogleAIStudioProvider(LLMProvider):
@@ -209,6 +232,15 @@ class GoogleAIStudioProvider(LLMProvider):
         self.model = model
 
     def generate(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
+        result = self._generate_internal(system_prompt, user_prompt, temperature)
+        if result is None:
+            time.sleep(3)
+            result = self._generate_internal(system_prompt, user_prompt, temperature)
+        if result is None:
+            return "（API 暫時無法回應，請稍後重試）"
+        return result
+
+    def _generate_internal(self, system_prompt: str, user_prompt: str, temperature: float) -> str | None:
         config = types.GenerateContentConfig(
             temperature=temperature,
             system_instruction=system_prompt,
@@ -238,7 +270,7 @@ class GoogleAIStudioProvider(LLMProvider):
                     if attempt < max_retries - 1:
                         time.sleep(1)
                         continue
-                    return "（模型未返回内容）"
+                    return None
 
                 cleaned_text = clean_response(raw_text)
                 return cleaned_text
@@ -251,18 +283,19 @@ class GoogleAIStudioProvider(LLMProvider):
                     if match:
                         retry_delay = float(match.group(1))
 
-                is_retryable = False
-                if any(code in error_str for code in ["429", "500", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL"]):
-                    is_retryable = True
+                is_retryable = any(
+                    code in error_str
+                    for code in ["429", "500", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL"]
+                )
 
                 if is_retryable and attempt < max_retries - 1:
                     wait_time = retry_delay if retry_delay else (2 ** attempt)
                     time.sleep(wait_time)
                     continue
 
-                raise RuntimeError(f"Google API call failed: {error_str}")
+                return None
 
-        raise RuntimeError(f"Google API call failed: 所有重試都失敗")
+        return None
 
     def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float) -> Generator[str, None, None]:
         config = types.GenerateContentConfig(
@@ -287,6 +320,104 @@ class GoogleAIStudioProvider(LLMProvider):
         cleaned = clean_response(full_text)
         if cleaned:
             yield cleaned
+
+    def generate_with_history(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        conversation_history: List[dict] = None,
+    ) -> str:
+        result = self._generate_with_history_internal(system_prompt, user_prompt, temperature, conversation_history)
+        if result is None:
+            time.sleep(3)
+            result = self._generate_with_history_internal(system_prompt, user_prompt, temperature, conversation_history)
+        if result is None:
+            return "（API 暫時無法回應，請稍後重試）"
+        return result
+
+    def _generate_with_history_internal(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        conversation_history: List[dict] = None,
+    ) -> str | None:
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+            system_instruction=system_prompt,
+        )
+
+        from google.genai import types as gt
+        contents: List[gt.Content] = []
+
+        if conversation_history:
+            for entry in conversation_history:
+                role = "user" if entry["role"] == "user" else "model"
+                contents.append(
+                    gt.Content(
+                        role=role,
+                        parts=[gt.Part(text=entry["content"])],
+                    )
+                )
+
+        contents.append(
+            gt.Content(
+                role="user",
+                parts=[gt.Part(text=user_prompt)],
+            )
+        )
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=contents,
+                    config=config,
+                )
+
+                raw_text = ""
+                if hasattr(response, 'text') and response.text:
+                    raw_text = response.text.strip()
+                elif hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    if hasattr(candidate, 'content') and candidate.content:
+                        if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                            raw_text = candidate.content.parts[0].text.strip()
+                else:
+                    raw_text = str(response).strip()
+
+                if not raw_text:
+                    if attempt < max_retries - 1:
+                        time.sleep(1)
+                        continue
+                    return None
+
+                cleaned_text = clean_response(raw_text)
+                return cleaned_text
+
+            except Exception as e:
+                error_str = str(e)
+                retry_delay = None
+                if "retryDelay" in error_str or "Please retry in" in error_str:
+                    match = re.search(r'retry in (\d+\.?\d*)s', error_str)
+                    if match:
+                        retry_delay = float(match.group(1))
+
+                is_retryable = any(
+                    code in error_str
+                    for code in ["429", "500", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL"]
+                )
+
+                if is_retryable and attempt < max_retries - 1:
+                    wait_time = retry_delay if retry_delay else (2 ** attempt)
+                    time.sleep(wait_time)
+                    continue
+
+                return None
+
+        return None
 
 
 def get_provider(config: AgentConfig) -> LLMProvider:

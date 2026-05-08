@@ -102,13 +102,18 @@ def decide_defect_strategy(state: AgentState, config: AgentConfig) -> AgentState
             defect_mode = "honest_defense"
 
     else:
+        last_was_overthink = strategy_history and strategy_history[-1] == "over_associate"
+        overthink_chance = overthinker - 0.5
+        if last_was_overthink:
+            overthink_chance *= 0.5
+
         if uncertain and rambler >= 0.5:
             strategy = "nonsense"
             defect_mode = "rambling"
         elif emotion >= 0.7 and yandere >= 0.6:
             strategy = "defend"
             defect_mode = "yandere_protect"
-        elif overthinker >= 0.6 and random.random() < (overthinker - 0.3):
+        elif overthinker >= 0.6 and random.random() < overthink_chance:
             strategy = "over_associate"
             defect_mode = "over_associate"
         elif perfectionist >= 0.3 and random.random() < 0.08:

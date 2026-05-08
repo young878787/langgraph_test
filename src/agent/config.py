@@ -2,10 +2,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import os
+import random
 from typing import Dict, List, Tuple
 from dotenv import load_dotenv
 
 load_dotenv()
+
+_seed = os.getenv("RANDOM_SEED", "")
+if _seed:
+    random.seed(int(_seed))
+    try:
+        import numpy as np
+        np.random.seed(int(_seed))
+    except Exception:
+        pass
 
 DEFAULT_SENSITIVE_TOPICS = [
     "appearance",
@@ -115,3 +125,6 @@ class AgentConfig:
     emotion_jitter: float = 0.10
     streaming_enabled: bool = True
     burst_threshold: int = 3
+    memory_enabled: bool = True
+    max_history_turns: int = 10
+    summary_interval: int = 5

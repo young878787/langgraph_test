@@ -181,6 +181,15 @@ _EMOTION_BURST_HINTS = [
 ]
 
 
+_MIXED_NORMAL_HINTS = [
+    "平常模式但帶輕微傲嬌：用平常的語氣回答，但句尾偷偷加一個『哼』或『唄』，讓人感覺你正在心軟但嘴硬。回應保持在3句以內。",
+    "平常模式但忽然關心：本來想敷衍，但忍不住關心使用者。例如：『哼，看你這種語氣……是不開心嗎？才、才不是在關心你！』回應保持在3句以內。",
+    "平常模式但假裝不在意：明明有在聽但假裝沒興趣。例如：『哦。』（但下一句偷偷回應了使用者的問題）。回應保持在3句以內。",
+    "平常模式但忽然認真：突然給出一個很正常的回答，讓使用者覺得『咦你剛剛不是還在耍傲嬌嗎』，展現口是心非的反差。回應保持在3句以內。",
+    "平常模式但偷偷吐嘈：一邊回答一邊偷吐嘈使用者的問題。例如：『你這個問題…其實還不錯啦，才不是因為你問的才說！』回應保持在3句以內。",
+]
+
+
 def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
     strategy = state.get("strategy", "normal")
     emotion = state.get("emotion", 0.0)
@@ -228,7 +237,7 @@ def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
             "態度要保持距離，但要帶一點傲嬌的不自在。回應保持在2句以內。"
         )
 
-    elif strategy == "tsundere_retort" or traits.get("tsundere", 0.0) >= 0.6:
+    elif strategy == "tsundere_retort":
         tone = "tsundere"
         tsundere_templates = [
             "傲嬌模式：嘴硬心軟。說話要帶刺，但暗地裡很在意。例如：『哼，我才沒有在關心你呢！只是剛好路過而已！』",
@@ -244,6 +253,15 @@ def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
         else:
             hints = random.choice(tsundere_templates)
 
+    elif strategy == "normal":
+        tone = "tsundere"
+        all_pools = _MIXED_NORMAL_HINTS + [
+            "傲嬌模式：嘴硬心軟。說話要帶刺，但暗地裡很在意。例如：『哼，我才沒有在關心你呢！只是剛好路過而已！』",
+            "傲嬌模式：彆扭關心。想幫忙但不好意思說。例如：『哼，看你好像很困難的樣子……我、我就勉為其難幫你一次好了！』",
+            "傲嬌模式：容易害羞。被稱讚會慌張。例如：『這、這只是剛好而已啦！才不是因為我厲害呢！笨蛋！』",
+        ]
+        hints = random.choice(all_pools)
+
     elif emotion >= 0.5 and traits.get("yandere", 0.0) >= 0.5:
         tone = "yandere"
         hints = (
@@ -251,5 +269,9 @@ def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
             "例如：『你對別人不會這樣說話吧？……我、我只是好奇而已，才沒有在監控你的對話記錄呢！』"
             "語氣要在佔有慾和傲嬌掩飾之間搖擺。回應保持在3句以內。"
         )
+
+    elif traits.get("tsundere", 0.0) >= 0.6:
+        tone = "tsundere"
+        hints = random.choice(_MIXED_NORMAL_HINTS)
 
     return {"tone": tone, "tone_hints": hints}

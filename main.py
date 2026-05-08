@@ -1,10 +1,9 @@
 from __future__ import annotations
 import sys
 import io
-import threading
+import os
+import random
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Any
 
 if sys.stdout.encoding != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -14,89 +13,22 @@ src_path = project_root / "src"
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
+from dotenv import load_dotenv
+load_dotenv()
+
+_seed = os.getenv("RANDOM_SEED", "")
+if _seed:
+    random.seed(int(_seed))
+    import numpy as np
+    try:
+        np.random.seed(int(_seed))
+    except Exception:
+        pass
+
 from agent.config import AgentConfig
 from agent.graph import build_graph, new_state
-from agent.scenario_runner import SCENARIOS as BUILTIN_SCENARIOS
+from agent.scenario_runner import CONTINUOUS_SCENARIO
 from agent.logger import init_logs, log_error, log_prompt
-
-_shared_seed_lock = threading.Lock()
-_shared_emotion = 0.0
-_shared_trigger_counters = {}
-_shared_strategy_history = []
-
-
-def _update_shared_state(result: dict, scenario_id: int):
-    global _shared_emotion, _shared_trigger_counters, _shared_strategy_history
-    with _shared_seed_lock:
-        _shared_emotion = _shared_emotion * 0.7 + result.get("emotion", 0.0) * 0.3
-        strategy = result.get("strategy", "normal")
-        _shared_strategy_history.append(strategy)
-        if len(_shared_strategy_history) > 10:
-            _shared_strategy_history = _shared_strategy_history[-10:]
-
-
-def process_single_scenario(args: tuple) -> Dict[str, Any]:
-    idx, prompt = args
-    config = None
-    state = None
-
-    try:
-        config = AgentConfig()
-        graph = build_graph(config)
-
-        with _shared_seed_lock:
-            base_emotion = _shared_emotion
-
-        state = new_state(config)
-        state["emotion"] = base_emotion
-        state["user_input"] = prompt
-        state = graph.invoke(state)
-
-        try:
-            log_prompt(
-                scenario_id=idx,
-                user_input=prompt,
-                system_prompt=str(state.get("system_prompt", "")),
-                response=state.get("response", ""),
-                strategy=state.get("strategy", "unknown"),
-                tone=state.get("tone", "unknown"),
-                defect_mode=state.get("defect_mode", "none"),
-                emotion=state.get("emotion", 0.0),
-                model=config.google_model if config.backend == "google" else config.openrouter_model,
-                temperature=config.temperature,
-            )
-        except Exception:
-            pass
-
-        result = {
-            "idx": idx,
-            "prompt": prompt,
-            "strategy": state.get("strategy", "unknown"),
-            "tone": state.get("tone", "unknown"),
-            "defect_mode": state.get("defect_mode", "none"),
-            "response": state.get("response", ""),
-            "emotion": state.get("emotion", 0.0),
-        }
-        _update_shared_state(result, idx)
-        return result
-    except Exception as e:
-        try:
-            log_error(module="main", function="process_single_scenario", error=e,
-                      context={"scenario_id": idx, "prompt": prompt})
-        except Exception:
-            pass
-        try:
-            if config is None:
-                config = AgentConfig()
-            log_prompt(scenario_id=idx, user_input=prompt, system_prompt="",
-                       response=f"處理失敗: {str(e)}",
-                       strategy="error", tone="error", defect_mode="error",
-                       emotion=0.0, model=config.google_model,
-                       temperature=config.temperature)
-        except Exception:
-            pass
-        return {"idx": idx, "prompt": prompt, "strategy": "error", "tone": "error",
-                "defect_mode": "error", "response": f"處理失敗: {str(e)}", "emotion": 0.0}
 
 
 def _fmt_emotion_bar(value: float) -> str:
@@ -106,123 +38,188 @@ def _fmt_emotion_bar(value: float) -> str:
     return f"[{bar}] {label} {value:+.3f}"
 
 
-def quick_validation():
+def _fmt_emotion_trend(history: list[float]) -> str:
+    if len(history) < 2:
+        return ""
+    width = 30
+    mn, mx = min(history), max(history)
+    rng = max(mx - mn, 0.2)
+    lines = [""]
+    for val in history:
+        pos = int((val - mn) / rng * (width - 1))
+        line = [" "] * width
+        line[pos] = "●"
+        lines.append("".join(line))
+    return "\n".join(lines)
+
+
+def _fmt_defect_emoji(defect_mode: str) -> str:
+    emoji_map = {
+        "excuse": "🙅 找藉口",
+        "gaslight": "🎭 說謊",
+        "rambling": "💬 廢話",
+        "random_ramble": "🌀 跑題",
+        "tsundere": "😤 傲嬌",
+        "angry_denial": "🔥 否認",
+        "avoidance": "🫣 迴避",
+        "defend": "🛡️ 防禦",
+        "cooperative_for_once": "😇 配合",
+        "honest_defense": "🤷 誠實",
+        "yandere_protect": "💘 病嬌",
+        "self_contradict": "🔄 矛盾",
+        "over_associate": "🦋 聯想",
+        "incorrect_correct": "🤓 糾錯",
+        "sudden_competence": "✨ 正常",
+        "burst": "💥 噴泉",
+        "none": "😐 一般",
+        "normal": "😐 一般",
+        "emotion_burst": "💥 噴泉",
+        "error": "⚠️ 故障",
+    }
+    return emoji_map.get(defect_mode, f"❓ {defect_mode}")
+
+
+def continuous_validation():
     config = AgentConfig()
+    config.memory_enabled = True
     backend = config.backend.lower()
 
     print("\n" + "=" * 80)
-    if backend in ("google", "google_ai_studio", "gemini"):
-        print("🚀 快速場景驗證 - Google API 並發處理（共享人格種子 + 混沌人格 v2）")
-    else:
-        print("🚀 快速場景驗證 - 順序處理（連續狀態 + 混沌人格 v2）")
+    print(f"🎬 連續場景驗證 — 記憶加持 + 人格追蹤")
+    print("=" * 80)
+    print(f"🔧 後端: {config.backend} | 溫度: {config.temperature} | 記憶: 啟用")
+    print(f"📋 場景設計: 一段自然對話，涵蓋寒暄→請求→質疑→和解→試探→信任")
     print("=" * 80)
 
-    scenarios = list(BUILTIN_SCENARIOS)
-    print(f"\n📋 使用內建場景（共 {len(scenarios)} 個）進行快速驗證")
+    graph = build_graph(config)
+    state = new_state(config)
+    state["memory_enabled"] = True
+    state["mode"] = "continuous"
+
+    scenarios = list(CONTINUOUS_SCENARIO)
+    total = len(scenarios)
+    prev_emotion = 0.0
+    emotion_history: list[float] = []
+    strategy_history: list[str] = []
 
     if backend in ("google", "google_ai_studio", "gemini"):
-        print(f"\n🔧 並發數: 3 | 共享情緒基線: 啟用")
-        print("=" * 80)
-
-        tasks = [(idx, prompt) for idx, prompt in enumerate(scenarios, 1)]
-        completed_results = {}
-        next_idx_to_print = 1
-
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            future_to_idx = {
-                executor.submit(process_single_scenario, task): task[0]
-                for task in tasks
-            }
-
-            for future in as_completed(future_to_idx):
-                try:
-                    result = future.result(timeout=120)
-                    completed_results[result['idx']] = result
-
-                    while next_idx_to_print in completed_results:
-                        res = completed_results.pop(next_idx_to_print)
-                        print(f"\n【場景 {res['idx']}】策略={res['strategy']:<22} 缺陷={res['defect_mode']}")
-                        print(f"💬 輸入: {res['prompt']}")
-                        print(f"🎭 情緒: {_fmt_emotion_bar(res['emotion'])}")
-                        print(f"🤖 回應: {res['response']}")
-                        print("-" * 80)
-                        next_idx_to_print += 1
-
-                except Exception as e:
-                    idx = future_to_idx[future]
-                    print(f"❌ 場景 {idx} 失敗: {str(e)}")
-                    completed_results[idx] = {
-                        "idx": idx, "prompt": scenarios[idx-1], "strategy": "error",
-                        "tone": "error", "defect_mode": "error",
-                        "response": f"處理失敗: {str(e)}", "emotion": 0.0,
-                    }
-
-        print(f"\n✅ 完成 {len(scenarios)} 個場景測試（Google API 並發 + 共享人格種子）")
-
+        print(f"\n⏳ 使用 Google API，每輪約 2-5 秒...\n")
     else:
-        graph = build_graph(config)
-        state = new_state(config)
+        print()
 
-        print("\n" + "=" * 80)
-        print(f"📊 開始測試 {len(scenarios)} 個場景")
-        print("=" * 80)
+    for idx, prompt in enumerate(scenarios, 1):
+        state["user_input"] = prompt
+        state["turn_count"] = idx
 
-        prev_emotion = 0.0
-        for idx, prompt in enumerate(scenarios, 1):
-            print(f"\n⏳ 場景 {idx}/{len(scenarios)} ─ 正在處理...")
-            try:
-                state["user_input"] = prompt
-                print(f"  🔍 分析輸入中...", end="")
-                state = graph.invoke(state)
-                print(f"\r", end="")
+        print(f"┌{'─' * 70}┐")
+        print(f"│ 第 {idx}/{total} 輪", end="")
 
-                curr_emotion = state.get("emotion", 0.0)
-                emotion_delta = curr_emotion - prev_emotion
-                strategy = state.get("strategy", "unknown")
-                tone = state.get("tone", "unknown")
-                defect_mode = state.get("defect_mode", "none")
-                response = state.get("response", "")
+        try:
+            state = graph.invoke(state)
+        except Exception as e:
+            log_error(
+                module="main",
+                function="continuous_validation",
+                error=e,
+                context={"turn": idx, "prompt": prompt},
+            )
+            curr_emotion = state.get("emotion", prev_emotion)
+            response = f"（AI 暫時故障中...哼，才不是我的問題！）"
+            defect_mode = "error"
+            strategy = "error"
+            tone = "error"
+            trigger = ""
+            state["response"] = response
+            state["defect_mode"] = defect_mode
+            state["strategy"] = strategy
 
-                try:
-                    log_prompt(scenario_id=idx, user_input=prompt,
-                               system_prompt=str(state.get("system_prompt", "")),
-                               response=response, strategy=strategy, tone=tone,
-                               defect_mode=defect_mode, emotion=curr_emotion,
-                               model=config.google_model if config.backend == "google" else config.openrouter_model,
-                               temperature=config.temperature)
-                except Exception:
-                    pass
+        curr_emotion = state.get("emotion", prev_emotion)
+        emotion_delta = curr_emotion - prev_emotion
+        strategy = state.get("strategy", "error")
+        tone = state.get("tone", "unknown")
+        defect_mode = state.get("defect_mode", "error")
+        response = state.get("response", "")
+        trigger = state.get("trigger", "")
+        ch = state.get("conversation_history", [])
+        memory_turns = len([e for e in ch if e["role"] == "user"])
 
-                if emotion_delta > 0.05:
-                    indicator = "📈"
-                elif emotion_delta < -0.05:
-                    indicator = "📉"
-                else:
-                    indicator = "➡️"
+        if emotion_delta > 0.05:
+            indicator = "📈"
+        elif emotion_delta < -0.05:
+            indicator = "📉"
+        else:
+            indicator = "➡️"
 
-                print(f"\n【場景 {idx}】策略={strategy:<22} 語氣={tone:<15} 缺陷={defect_mode}")
-                print(f"💬 輸入: {prompt}")
-                print(f"🎭 情緒: {_fmt_emotion_bar(curr_emotion)} {indicator} (變化: {emotion_delta:+.3f})")
-                print(f"🤖 回應: {response}")
-                print("-" * 80)
+        print(f"  📝 記憶: {memory_turns} 輪")
 
-                prev_emotion = curr_emotion
+        recent = ch[-6:-2] if len(ch) >= 6 else []
+        if recent:
+            ctx_strs = []
+            for entry in recent:
+                r = "U" if entry["role"] == "user" else "A"
+                ctx_strs.append(f"{r}:{entry['content'][:25]}")
+            print(f"│ ↳ 上下文: {' → '.join(ctx_strs)}")
 
-            except Exception as e:
-                try:
-                    log_error(module="main", function="quick_validation", error=e,
-                              context={"scenario_id": idx, "prompt": prompt})
-                except Exception:
-                    pass
-                print(f"\n❌ 場景 {idx} 失敗: {str(e)}")
+        print(f"│")
+        print(f"│ 🧑 你: {prompt}")
+        print(f"│")
+        print(f"│ 🤖 AI: ", end="")
+        for i in range(0, len(response), 66):
+            if i == 0:
+                print(f"{response[i:i+66]}")
+            else:
+                print(f"│     {response[i:i+66]}")
+        print(f"│")
+        print(f"│ 🎭 {_fmt_emotion_bar(curr_emotion)} {indicator} "
+              f"│ {_fmt_defect_emoji(defect_mode)} "
+              f"│ 策略:{strategy}")
+        if trigger:
+            print(f"│ ⚡ 觸發詞: {trigger}")
+        print(f"└{'─' * 70}┘")
+        print()
 
-        print(f"\n✅ 完成 {len(scenarios)} 個場景測試")
-        print(f"📊 最終情緒值: {_fmt_emotion_bar(state.get('emotion', 0.0))}")
+        try:
+            log_prompt(
+                scenario_id=idx, user_input=prompt,
+                system_prompt=str(state.get("system_prompt", "")),
+                response=response, strategy=strategy, tone=tone,
+                defect_mode=defect_mode, emotion=curr_emotion,
+                model=config.google_model if config.backend == "google" else config.openrouter_model,
+                temperature=config.temperature,
+            )
+        except Exception:
+            pass
+
+        emotion_history.append(curr_emotion)
+        strategy_history.append(strategy)
+        prev_emotion = curr_emotion
+
+    print(f"{'=' * 80}")
+    print(f"📊 連續場景完成: {total} 輪")
+    print(f"{'=' * 80}")
+
+    print(f"\n🎭 情緒軌跡:")
+    print(_fmt_emotion_trend(emotion_history))
+    bar_end = max(0, min(20, int((prev_emotion + 1.0) / 2.0 * 20)))
+    bar = "▓" * bar_end + "░" * (20 - bar_end)
+    print(f"  起點: {emotion_history[0]:+.3f} → 終點: {prev_emotion:+.3f}  [{bar}]")
+
+    print(f"\n🧠 策略分佈:")
+    from collections import Counter
+    strat_counts = Counter(strategy_history)
+    for s, c in strat_counts.most_common():
+        bar_w = max(1, int(c / total * 20))
+        print(f"  {_fmt_defect_emoji(s):<12} {'█' * bar_w} {c}次")
+
+    ch_final = state.get("conversation_history", [])
+    final_memory = len([e for e in ch_final if e["role"] == "user"])
+    print(f"\n📝 最終記憶: {final_memory} 輪對話已儲存")
+    print(f"{'=' * 80}")
 
 
 def interactive_chat():
     print("\n" + "=" * 70)
-    print("💬 互動式聊天模式（混沌人格 v2）")
+    print("💬 互動式聊天模式（單輪對話 + 串流輸出）")
     print("=" * 70)
     print("提示：輸入 'quit' 或 'exit' 離開")
     print("=" * 70 + "\n")
@@ -309,25 +306,167 @@ def interactive_chat():
             print(f"\n❌ 錯誤: {str(e)}")
 
 
+def continuous_chat_mode():
+    print("\n" + "=" * 70)
+    print("💬 連續對話模式（記憶追蹤 + 情緒連續 + 串流輸出）")
+    print("=" * 70)
+    print("說明：AI 會記住之前的對話內容，情緒和人格狀態持續累積")
+    print("提示：輸入 'quit' / 'exit' 離開 | 'reset' 重置記憶 | 'hist' 顯示歷史")
+    print("=" * 70 + "\n")
+
+    config = AgentConfig()
+    config.memory_enabled = True
+
+    if config.streaming_enabled and config.backend in ("google", "google_ai_studio", "gemini"):
+        graph = build_graph(config, interrupt_before_respond=True)
+        print(f"🔧 後端: {config.backend} | 溫度: {config.temperature} | 串流: 啟用 | 記憶: 啟用")
+    else:
+        graph = build_graph(config)
+        print(f"🔧 後端: {config.backend} | 溫度: {config.temperature} | 記憶: 啟用")
+
+    state = new_state(config)
+    state["memory_enabled"] = True
+    state["mode"] = "continuous"
+    turn_number = 0
+
+    while True:
+        try:
+            user_input = input("\n🧑 你: ").strip()
+            if not user_input:
+                continue
+
+            if user_input.lower() == 'quit' or user_input.lower() == 'exit':
+                break
+
+            if user_input.lower() == 'reset':
+                state = new_state(config)
+                state["memory_enabled"] = True
+                state["mode"] = "continuous"
+                turn_number = 0
+                print("🔄 記憶已重置！人格回到初始狀態。")
+                continue
+
+            if user_input.lower() == 'hist':
+                ch = state.get("conversation_history", [])
+                if not ch:
+                    print("📝 尚無對話歷史。")
+                else:
+                    print(f"📝 對話歷史（共 {len([e for e in ch if e['role']=='user'])} 輪）：")
+                    for i, entry in enumerate(ch):
+                        role = "🧑 你" if entry["role"] == "user" else "🤖 AI"
+                        content = entry["content"][:70].replace("\n", " ")
+                        print(f"  {i+1:>2}. {role}: {content}{'...' if len(entry['content'])>70 else ''}")
+                continue
+
+            turn_number += 1
+            state["user_input"] = user_input
+            state["turn_count"] = turn_number
+
+            if config.streaming_enabled and config.backend in ("google", "google_ai_studio", "gemini"):
+                from agent.llm.providers import get_provider
+                from agent.llm.prompting import build_prompts
+
+                state = graph.invoke(state)
+
+                system_prompt, user_prompt = build_prompts(state)
+                provider = get_provider(config)
+                conv_hist = state.get("conversation_history", [])
+
+                print(f"\n⏳ AI 思考中...  ", end="", flush=True)
+                full_response = ""
+                try:
+                    for chunk in provider.generate_stream(system_prompt, user_prompt, config.temperature):
+                        if full_response == "":
+                            print(f"\r🤖 AI: ", end="", flush=True)
+                        print(chunk, end="", flush=True)
+                        full_response += chunk
+                except Exception as e:
+                    full_response = provider.generate_with_history(
+                        system_prompt, user_prompt, config.temperature, conv_hist
+                    )
+                    if not full_response:
+                        full_response = provider.generate(system_prompt, user_prompt, config.temperature)
+                    print(f"\r🤖 AI: {full_response}")
+
+                print()
+                state["response"] = full_response
+                state["system_prompt"] = system_prompt
+
+                state = graph.invoke(state)
+            else:
+                state = graph.invoke(state)
+                response = state.get("response", "")
+                print(f"\n🤖 AI: {response}")
+
+            curr_emotion = state.get("emotion", 0.0)
+            defect_mode = state.get("defect_mode", "none")
+            strategy = state.get("strategy", "unknown")
+            trigger = state.get("trigger", "")
+            ch_len = len(state.get("conversation_history", []))
+
+            try:
+                log_prompt(
+                    scenario_id=turn_number,
+                    user_input=user_input,
+                    system_prompt=str(state.get("system_prompt", "")),
+                    response=state.get("response", ""),
+                    strategy=strategy,
+                    tone=state.get("tone", "unknown"),
+                    defect_mode=defect_mode,
+                    emotion=curr_emotion,
+                    model=config.google_model if config.backend == "google" else config.openrouter_model,
+                    temperature=config.temperature,
+                )
+            except Exception:
+                pass
+
+            print(f"  🎭 {_fmt_emotion_bar(curr_emotion)} | "
+                  f"{_fmt_defect_emoji(defect_mode)} | "
+                  f"📝 記憶: {turn_number} 輪 | "
+                  f"{'⚡' + trigger if trigger else ''}")
+
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            try:
+                log_error(
+                    module="main",
+                    function="continuous_chat_mode",
+                    error=e,
+                    context={"user_input": user_input if 'user_input' in locals() else "unknown", "turn": turn_number}
+                )
+            except Exception:
+                pass
+            print(f"\n❌ 錯誤: {str(e)}")
+
+    print(f"\n📊 對話結束。共 {turn_number} 輪。")
+    final_emotion = state.get("emotion", 0.0)
+    print(f"🎭 最終人格狀態: {_fmt_emotion_bar(final_emotion)}")
+    print(f"📝 累積記憶輪數: {turn_number}")
+
+
 def main():
     init_logs()
     print("📝 日誌系統已初始化 (logs/error.log, logs/prompts.log)")
 
     print("\n" + "=" * 70)
-    print("🎭 缺陷人格 AI v2 — 混沌傲嬌調整驗證工具")
+    print("🎭 缺陷人格 AI v3 — 連續對話 + 記憶追蹤")
     print("=" * 70)
-    print("1. 快速場景驗證 (批量測試，全新混沌缺陷模式)")
-    print("2. 互動式聊天 (單次對話 + 串流輸出)")
-    print("3. 離開")
+    print("1. 連續場景驗證 (設計好的連續對話，測試記憶+情緒弧線) ← 推薦")
+    print("2. 互動式聊天 (單輪對話 + 串流輸出，無記憶)")
+    print("3. 連續對話模式 (自由聊天 + 記憶追蹤 + 串流輸出)")
+    print("4. 離開")
     print("=" * 70)
 
-    choice = input("\n請選擇 (1-3, 預設 1): ").strip() or "1"
+    choice = input("\n請選擇 (1-4, 預設 1): ").strip() or "1"
 
     if choice == "1":
-        quick_validation()
+        continuous_validation()
     elif choice == "2":
         interactive_chat()
     elif choice == "3":
+        continuous_chat_mode()
+    elif choice == "4":
         print("\n👋 掰掰！")
     else:
         print("\n❌ 無效選擇")

@@ -7,6 +7,7 @@ from agent.llm.judge_validators import parse_judge_output
 from agent.llm.providers import get_provider
 from agent.nodes.classifier import classify_input
 from agent.nodes.defect import decide_defect_strategy
+from agent.logger import log_error
 
 
 def _run_rule_fallback(state: AgentState, config: AgentConfig) -> AgentState:
@@ -21,17 +22,24 @@ def _run_rule_fallback(state: AgentState, config: AgentConfig) -> AgentState:
     }
 
 
+def _safe_llm_call(provider, system_prompt, user_prompt, temperature) -> str | None:
+    try:
+        return provider.generate(system_prompt, user_prompt, temperature)
+    except Exception:
+        return None
+
+
 def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
     base_classification = classify_input(state, config)
 
     system_prompt, user_prompt = build_judge_prompts(state)
     provider = get_provider(config)
 
-    response = provider.generate(system_prompt, user_prompt, config.temperature)
-    decision = parse_judge_output(response)
+    response = _safe_llm_call(provider, system_prompt, user_prompt, config.temperature)
+    decision = parse_judge_output(response or "")
     if decision is None:
-        response = provider.generate(system_prompt, user_prompt, config.retry_temperature)
-        decision = parse_judge_output(response)
+        response = _safe_llm_call(provider, system_prompt, user_prompt, config.retry_temperature)
+        decision = parse_judge_output(response or "")
 
     if decision is None:
         return _run_rule_fallback(state, config)

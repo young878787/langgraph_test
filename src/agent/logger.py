@@ -9,6 +9,7 @@ from typing import Optional
 LOG_DIR = Path(__file__).parent.parent.parent / "logs"
 ERROR_LOG = LOG_DIR / "error.log"
 PROMPT_LOG = LOG_DIR / "prompts.log"
+PROMPT_MD = LOG_DIR / "prompts.md"
 
 
 def init_logs() -> None:
@@ -28,6 +29,21 @@ def init_logs() -> None:
         except Exception as e:
             # 如果無法建立日誌檔案，至少列印錯誤
             print(f"警告：無法初始化日誌檔案 {log_file}: {e}")
+    
+    # 初始化 Markdown 日誌
+    try:
+        md_header = f"""# 📝 Prompts 日誌
+
+> 生成時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+---
+
+"""
+        with open(PROMPT_MD, "w", encoding="utf-8") as f:
+            f.write(md_header)
+            f.flush()
+    except Exception as e:
+        print(f"警告：無法初始化 Markdown 日誌檔案: {e}")
 
 
 def log_error(
@@ -81,7 +97,7 @@ def log_prompt(
     temperature: Optional[float] = None,
 ) -> None:
     """
-    記錄輸入輸出的格式化資訊到 prompts.log
+    記錄輸入輸出的格式化資訊到 prompts.log 和 prompts.md
     
     Args:
         scenario_id: 場景ID
@@ -97,6 +113,7 @@ def log_prompt(
     """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
+    # 原始 log 格式（保持向後兼容）
     log_entry = f"""
 [{timestamp}] 場景 {scenario_id}
 {'=' * 80}
@@ -129,6 +146,21 @@ def log_prompt(
             f.flush()  # 立即寫入磁碟
     except Exception as e:
         print(f"警告：無法寫入提示詞日誌: {e}")
+    
+    # Markdown 格式輸出（現代化風格）
+    _write_markdown_log(
+        scenario_id=scenario_id,
+        timestamp=timestamp,
+        user_input=user_input,
+        system_prompt=system_prompt,
+        response=response,
+        strategy=strategy,
+        tone=tone,
+        defect_mode=defect_mode,
+        emotion=emotion,
+        model=model,
+        temperature=temperature
+    )
 
 
 def log_raw_io(
@@ -137,7 +169,7 @@ def log_raw_io(
     output_data: dict,
 ) -> None:
     """
-    記錄原始輸入輸出數據（JSON格式）
+    記錄原始輸入輸出數據（JSON格式）到 prompts.log 和 prompts.md
     
     Args:
         scenario_id: 場景ID
@@ -164,3 +196,136 @@ def log_raw_io(
             f.flush()  # 立即寫入磁碟
     except Exception as e:
         print(f"警告：無法寫入原始數據日誌: {e}")
+    
+    # Markdown 格式
+    md_entry = f"""
+## 📊 場景 {scenario_id} - 原始數據
+
+> 🕐 **時間**: {timestamp}
+
+### 📥 輸入數據
+```json
+{json.dumps(input_data, ensure_ascii=False, indent=2)}
+```
+
+### 📤 輸出數據
+```json
+{json.dumps(output_data, ensure_ascii=False, indent=2)}
+```
+
+---
+"""
+    
+    try:
+        with open(PROMPT_MD, "a", encoding="utf-8") as f:
+            f.write(md_entry)
+            f.flush()
+    except Exception as e:
+        print(f"警告：無法寫入 Markdown 原始數據日誌: {e}")
+
+
+def _write_markdown_log(
+    scenario_id: int,
+    timestamp: str,
+    user_input: str,
+    system_prompt: str,
+    response: str,
+    strategy: str,
+    tone: str,
+    defect_mode: str,
+    emotion: float,
+    model: Optional[str] = None,
+    temperature: Optional[float] = None,
+) -> None:
+    """
+    將日誌以現代化 Markdown 格式寫入 prompts.md
+    
+    Args:
+        各參數同 log_prompt
+    """
+    # 情緒條和表情
+    emotion_bar = _fmt_emotion_bar_md(emotion)
+    defect_emoji = _fmt_defect_emoji_md(defect_mode)
+    
+    # 構建 Markdown 條目
+    md_entry = f"""
+## 📌 場景 {scenario_id}
+
+> 🕐 **時間**: {timestamp}
+
+### 🧑 使用者輸入
+```
+{user_input}
+```
+
+### 🤖 模型回應
+```
+{response}
+```
+
+### 📊 元數據
+| 項目 | 值 |
+|------|-----|
+| 🎯 策略 | {strategy} |
+| 🎭 語氣 | {tone} |
+| 💥 缺陷模式 | {defect_emoji} |
+| 😊 情緒值 | {emotion_bar} |
+"""
+    
+    if model:
+        md_entry += f"| 🤖 模型 | `{model}` |\n"
+    if temperature is not None:
+        md_entry += f"| 🌡️ 溫度 | {temperature} |\n"
+    
+    md_entry += "\n### ⚙️ 系統提示詞\n<details>\n<summary>點擊展開/收起系統提示詞</summary>\n\n```\n"
+    md_entry += system_prompt[:1000]
+    if len(system_prompt) > 1000:
+        md_entry += f"\n... (已截斷，完整長度: {len(system_prompt)} 字符)"
+    md_entry += "\n```\n\n</details>\n\n---\n"
+    
+    try:
+        with open(PROMPT_MD, "a", encoding="utf-8") as f:
+            f.write(md_entry)
+            f.flush()
+    except Exception as e:
+        print(f"警告：無法寫入 Markdown 日誌: {e}")
+
+
+def _fmt_emotion_bar_md(value: float) -> str:
+    """格式化情緒條（Markdown 版本）"""
+    num_fill = max(0, min(10, int((value + 1.0) / 2.0 * 10)))
+    bar = "█" * num_fill + "░" * (10 - num_fill)
+    if value > 0.3:
+        label = "🔥 激動"
+    elif value > -0.3:
+        label = "😊 溫和"
+    else:
+        label = "😌 冷靜"
+    return f"[{bar}] {label} `{value:+.3f}`"
+
+
+def _fmt_defect_emoji_md(defect_mode: str) -> str:
+    """格式化缺陷模式（Markdown 版本）"""
+    emoji_map = {
+        "excuse": "🙅 找藉口",
+        "gaslight": "🎭 說謊",
+        "rambling": "💬 廢話",
+        "random_ramble": "🌀 跑題",
+        "tsundere": "😤 傲嬌",
+        "angry_denial": "🔥 否認",
+        "avoidance": "🫣 迴避",
+        "defend": "🛡️ 防禦",
+        "cooperative_for_once": "😇 配合",
+        "honest_defense": "🤷 誠實",
+        "yandere_protect": "💘 病嬌",
+        "self_contradict": "🔄 矛盾",
+        "over_associate": "🦋 聯想",
+        "incorrect_correct": "🤓 糾錯",
+        "sudden_competence": "✨ 正常",
+        "burst": "💥 噴泉",
+        "none": "😐 一般",
+        "normal": "😐 一般",
+        "emotion_burst": "💥 噴泉",
+        "error": "⚠️ 故障",
+    }
+    return emoji_map.get(defect_mode, f"❓ {defect_mode}")

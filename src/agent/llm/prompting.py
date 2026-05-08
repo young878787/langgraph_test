@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import List
 from agent.state import AgentState
 
 
@@ -11,6 +12,7 @@ def build_prompts(state: AgentState) -> tuple[str, str]:
     emotion = state.get("emotion", 0.0)
     traits = state.get("traits", {})
     tsundere_level = traits.get("tsundere", 0.0)
+    memory_enabled = state.get("memory_enabled", False)
 
     system_lines = [
         "你正在扮演一個具有嚴重缺陷人格的 AI 助手，特別是超級傲嬌。",
@@ -49,9 +51,50 @@ def build_prompts(state: AgentState) -> tuple[str, str]:
         "5. 只輸出純文字的最終回應，就是使用者會看到的內容。",
     ])
 
-    if summary:
+    if memory_enabled and summary:
         system_lines.append(f"對話記憶摘要：{summary}")
 
     system_prompt = "\n".join(system_lines)
     user_prompt = state.get("user_input", "")
     return system_prompt, user_prompt
+
+
+def build_memory_context(state: AgentState) -> str:
+    conversation_history = state.get("conversation_history", [])
+    if not conversation_history:
+        return ""
+
+    lines = ["【先前對話歷史】"]
+    for entry in conversation_history[-20:]:
+        role = "使用者" if entry["role"] == "user" else "傲嬌AI"
+        lines.append(f"{role}: {entry['content']}")
+    lines.append("---")
+    return "\n".join(lines)
+
+
+def build_contents_for_gemini(
+    system_prompt: str,
+    conversation_history: List[dict],
+    current_user_input: str,
+) -> list:
+    from google.genai import types
+
+    contents = []
+
+    for entry in conversation_history:
+        role = "user" if entry["role"] == "user" else "model"
+        contents.append(
+            types.Content(
+                role=role,
+                parts=[types.Part(text=entry["content"])],
+            )
+        )
+
+    contents.append(
+        types.Content(
+            role="user",
+            parts=[types.Part(text=current_user_input)],
+        )
+    )
+
+    return contents
