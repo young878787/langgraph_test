@@ -13,18 +13,27 @@ def writeback(state: AgentState) -> AgentState:
     if trigger:
         trigger_counters[trigger] = trigger_counters.get(trigger, 0) + 1
 
-    emotion = state.get("emotion", 0.0)
-    history_summary = f"last_strategy={strategy}; emotion={emotion:.2f}; trigger={trigger or 'none'}"
+    if strategy == "emotion_burst":
+        trigger_counters = {}
 
-    # 保留 system_prompt 和其他欄位
+    emotion = state.get("emotion", 0.0)
+    defect_mode = state.get("defect_mode", "none")
+    total_triggers = sum(trigger_counters.values())
+
+    history_summary = (
+        f"last_strategy={strategy}; defect_mode={defect_mode}; "
+        f"emotion={emotion:.2f}; trigger={trigger or 'none'}; "
+        f"total_triggers={total_triggers}"
+    )
+
     result = {
         "strategy_history": history,
         "trigger_counters": trigger_counters,
         "history_summary": history_summary,
+        "burst_pending": False,
     }
-    
-    # 確保 system_prompt 被保留
+
     if "system_prompt" in state:
         result["system_prompt"] = state["system_prompt"]
-    
+
     return result

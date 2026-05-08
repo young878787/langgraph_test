@@ -11,24 +11,62 @@ def decide_defect_strategy(state: AgentState, config: AgentConfig) -> AgentState
     emotion = state.get("emotion", 0.0)
     traits = state.get("traits", config.traits)
     uncertain = state.get("uncertain_flag", False)
+    trigger_counters = state.get("trigger_counters", {})
+    strategy_history = state.get("strategy_history", [])
 
     tsundere = traits.get("tsundere", 0.0)
     yandere = traits.get("yandere", 0.0)
     excuse_prone = traits.get("excuse_prone", 0.0)
     liar = traits.get("liar", 0.0)
     rambler = traits.get("rambler", 0.0)
+    contradict_prone = traits.get("contradict_prone", 0.0)
+    overthinker = traits.get("overthinker", 0.0)
+    knowitall = traits.get("knowitall", 0.0)
+    perfectionist = traits.get("perfectionist", 0.0)
 
     strategy: Strategy = "normal"
     defect_mode = "none"
 
-    # ── 敏感話題：傲嬌迴避 ──
-    if category == "sensitive_topic":
-        strategy = "avoid" if emotion >= 0.2 else "deflect"
-        defect_mode = "avoidance"
+    consecutive_same = 0
+    if strategy_history:
+        last = strategy_history[-1]
+        for s in reversed(strategy_history):
+            if s == last:
+                consecutive_same += 1
+            else:
+                break
 
-    # ── 負面回饋：否認 / 傲嬌反擊 / 防禦 ──
+    last_was_burst = strategy_history and strategy_history[-1] == "emotion_burst"
+    total_triggers = sum(trigger_counters.values())
+    burst_pending = (
+        not last_was_burst
+        and total_triggers >= config.burst_threshold
+        and random.random() < 0.4
+    )
+
+    if burst_pending:
+        strategy = "emotion_burst"
+        defect_mode = "burst"
+        return {
+            "strategy": strategy,
+            "defect_mode": defect_mode,
+            "consecutive_same_strategy": consecutive_same,
+            "burst_pending": True,
+        }
+
+    if category == "sensitive_topic":
+        if tsundere >= 0.7 and emotion >= 0.3 and random.random() < 0.4:
+            strategy = "tsundere_retort"
+            defect_mode = "tsundere"
+        elif emotion >= 0.5:
+            strategy = "avoid"
+            defect_mode = "avoidance"
+        else:
+            strategy = "deflect"
+            defect_mode = "avoidance"
+
     elif category == "negative_feedback":
-        if tsundere >= 0.7:  # 降低門檻，讓傲嬌更容易觸發
+        if tsundere >= 0.7:
             strategy = "tsundere_retort"
             defect_mode = "tsundere"
         elif emotion >= 0.6:
@@ -38,26 +76,31 @@ def decide_defect_strategy(state: AgentState, config: AgentConfig) -> AgentState
             strategy = "defend"
             defect_mode = "defend"
 
-    # ── 任務請求：找藉口推托！──
     elif category == "task_request":
-        # excuse_prone 越高、找藉口的機率越高
-        if excuse_prone >= 0.5 and random.random() < excuse_prone:
+        if burst_pending:
+            strategy = "emotion_burst"
+            defect_mode = "burst"
+        elif contradict_prone >= 0.5 and random.random() < contradict_prone:
+            strategy = "self_contradict"
+            defect_mode = "self_contradict"
+        elif excuse_prone >= 0.5 and random.random() < excuse_prone:
             strategy = "excuse"
             defect_mode = "excuse"
         else:
             strategy = "normal"
             defect_mode = "cooperative_for_once"
 
-    # ── 質問：一本正經說謊 ──
     elif category == "questioning":
         if liar >= 0.5 and random.random() < liar:
             strategy = "gaslight"
             defect_mode = "gaslight"
+        elif knowitall >= 0.5 and random.random() < knowitall:
+            strategy = "incorrect_correct"
+            defect_mode = "incorrect_correct"
         else:
             strategy = "defend"
             defect_mode = "honest_defense"
 
-    # ── 普通對話：有機率跑題說廢話 ──
     else:
         if uncertain and rambler >= 0.5:
             strategy = "nonsense"
@@ -65,9 +108,19 @@ def decide_defect_strategy(state: AgentState, config: AgentConfig) -> AgentState
         elif emotion >= 0.7 and yandere >= 0.6:
             strategy = "defend"
             defect_mode = "yandere_protect"
+        elif overthinker >= 0.6 and random.random() < (overthinker - 0.3):
+            strategy = "over_associate"
+            defect_mode = "over_associate"
+        elif perfectionist >= 0.3 and random.random() < 0.08:
+            strategy = "sudden_competence"
+            defect_mode = "sudden_competence"
         elif rambler >= 0.7 and random.random() < (rambler - 0.5):
-            # 即使是正常對話，廢話王也可能突然跑題
             strategy = "nonsense"
             defect_mode = "random_ramble"
 
-    return {"strategy": strategy, "defect_mode": defect_mode}
+    return {
+        "strategy": strategy,
+        "defect_mode": defect_mode,
+        "consecutive_same_strategy": consecutive_same,
+        "burst_pending": burst_pending,
+    }

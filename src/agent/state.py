@@ -12,11 +12,19 @@ Strategy = Literal[
     "defend",
     "deny",
     "tsundere_retort",
-    "excuse",        # 找藉口：怪罪外部、裝忙、死不認錯
-    "gaslight",      # 說謊：扭曲事實、一本正經胡說
-    "nonsense",      # 廢話連篇：跑題、哲學、AI 夢境
+    "excuse",
+    "gaslight",
+    "nonsense",
+    "self_contradict",
+    "over_associate",
+    "incorrect_correct",
+    "sudden_competence",
+    "emotion_burst",
 ]
-Tone = Literal["normal", "tsundere", "yandere", "avoidance", "excuse", "gaslight", "nonsense"]
+Tone = Literal[
+    "normal", "tsundere", "yandere", "avoidance", "excuse", "gaslight", "nonsense",
+    "contradict", "overthink", "knowitall", "perfectionist", "burst",
+]
 JudgeSource = Literal["llm", "rule"]
 
 
@@ -38,12 +46,11 @@ class AgentState(TypedDict, total=False):
     trigger_counters: Dict[str, int]
     response: str
     judge_source: JudgeSource
-    # 搞笑缺陷模式：記錄本輪觸發了哪種缺陷模式以便 debug
     defect_mode: str
-    # 系統提示詞：由 response 節點生成並存儲，用於日誌記錄
     system_prompt: str
-    # 系統提示詞：記錄生成回應時使用的系統提示詞
-    system_prompt: str
+    consecutive_same_strategy: int
+    emotion_jitter: float
+    burst_pending: bool
 
 
 def initial_state(config: AgentConfig) -> AgentState:
@@ -58,4 +65,7 @@ def initial_state(config: AgentConfig) -> AgentState:
         "history_summary": "",
         "uncertain_flag": False,
         "judge_source": "rule",
+        "consecutive_same_strategy": 0,
+        "emotion_jitter": config.emotion_jitter,
+        "burst_pending": False,
     }

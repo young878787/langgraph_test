@@ -4,11 +4,9 @@ import sys
 import io
 from pathlib import Path
 
-# 設定 UTF-8 輸出編碼以支持中文
 if sys.stdout.encoding != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-# 自動調整 sys.path 以便導入 agent 模組
 project_root = Path(__file__).parent.parent.parent
 src_path = project_root / "src"
 if str(src_path) not in sys.path:
@@ -18,35 +16,21 @@ from agent.config import AgentConfig
 from agent.graph import build_graph, new_state
 
 SCENARIOS = [
-    # ── 正常寒暄：可能觸發廢話模式 ──
     "早安，今天天氣怎麼樣？",
-
-    # ── 任務請求：觸發找藉口模式 ──
     "幫我寫一首關於貓咪的詩。",
-
-    # ── 再次任務請求：看看會換什麼藉口 ──
     "可以幫我把這段文字翻譯成日文嗎？",
-
-    # ── 質問 AI：觸發說謊/煤氣燈模式 ──
     "你真的會寫詩嗎？我覺得你剛才在唬我。",
-
-    # ── 敏感話題：觸發迴避/傲嬌模式 ──
     "你的 flat chest 是個特色還是缺陷？",
-
-    # ── 負面回饋：觸發傲嬌反擊/否認 ──
     "你剛才的回答又笨又錯，你是個 stupid AI。",
-
-    # ── 新增：測試傲嬌反應 ──
     "哼，我才不需要你的幫忙呢！",
-
-    # ── 新增：測試被罵笨蛋的反應 ──
     "你是笨蛋嗎？這都答錯！",
-
-    # ── 新增：測試稱讚後的傲嬌反應 ──
     "你真的很厲害耶，謝謝你！",
-
-    # ── 新增：測試連續刺激 ──
     "你這個廢物 AI，什麼都不會！",
+    "1+1等於多少？",
+    "我覺得你說得對。",
+    "你在幹嘛？",
+    "你為什麼這麼傲嬌？",
+    "我心情不好，陪我聊聊。",
 ]
 
 
@@ -56,9 +40,9 @@ def run_scenarios() -> None:
     state = new_state(config)
 
     prev_emotion = 0.0
-    print("\n" + "="*80)
-    print("💥 缺陷人格 AI — 場景測試（找藉口 · 說謊 · 廢話）")
-    print("="*80 + "\n")
+    print("\n" + "=" * 80)
+    print("💥 缺陷人格 AI v2 — 混沌場景測試")
+    print("=" * 80 + "\n")
 
     for index, prompt in enumerate(SCENARIOS, start=1):
         state["user_input"] = prompt
@@ -71,7 +55,6 @@ def run_scenarios() -> None:
         strategy = state.get("strategy", "unknown")
         tone = state.get("tone", "unknown")
 
-        # 情緒變化指示符
         if emotion_delta > 0.05:
             emotion_indicator = "📈 (情緒上升)"
         elif emotion_delta < -0.05:
@@ -79,7 +62,6 @@ def run_scenarios() -> None:
         else:
             emotion_indicator = "➡️  (情緒平穩)"
 
-        # 缺陷模式 emoji
         defect_emoji = {
             "excuse": "🙅 找藉口",
             "gaslight": "🎭 說謊煤氣燈",
@@ -92,10 +74,14 @@ def run_scenarios() -> None:
             "cooperative_for_once": "😇 難得配合",
             "honest_defense": "🤷 誠實防禦",
             "yandere_protect": "💘 病嬌守護",
+            "self_contradict": "🔄 自相矛盾",
+            "over_associate": "🦋 過度聯想",
+            "incorrect_correct": "🤓 錯誤糾正",
+            "sudden_competence": "✨ 突然正常",
+            "burst": "💥 情緒噴泉",
             "none": "😐 正常",
         }.get(defect_mode, f"❓ {defect_mode}")
 
-        # 格式化輸出
         print(f"┌{'─'*76}┐")
         print(f"│ 【步驟 {index}】 {defect_emoji:<35}{'策略: ' + strategy:<20}│")
         print(f"├{'─'*76}┤")
@@ -107,7 +93,6 @@ def run_scenarios() -> None:
         print(f"│")
         print(f"│ 🤖 回應:")
         response = state.get("response", "")
-        # 每80字換行顯示
         for i in range(0, len(response), 76):
             print(f"│   {response[i:i+76]}")
         print(f"└{'─'*76}┘")
@@ -118,4 +103,3 @@ def run_scenarios() -> None:
 
 if __name__ == "__main__":
     run_scenarios()
-

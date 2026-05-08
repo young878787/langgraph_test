@@ -13,6 +13,11 @@ VALID_STRATEGIES = (
     "excuse",
     "gaslight",
     "nonsense",
+    "self_contradict",
+    "over_associate",
+    "incorrect_correct",
+    "sudden_competence",
+    "emotion_burst",
 )
 
 
@@ -42,6 +47,11 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
         "  - excuse：當 category=task_request 且 AI 有強烈的偷懶傾向時使用。",
         "  - gaslight：當 category=questioning 且 AI 傾向說謊時使用。",
         "  - nonsense：當 category=normal 且 AI 的廢話特質很強時使用。",
+        "  - self_contradict：當 category=task_request 且 AI 有自相矛盾傾向時使用。",
+        "  - over_associate：當 category=normal 且 AI 有過度聯想傾向時使用。",
+        "  - incorrect_correct：當 category=questioning 且 AI 自以為是時使用。",
+        "  - sudden_competence：極罕見情況下突然給出完美正確答案。",
+        "  - emotion_burst：累積多次壓力後突然說出真心話。",
         "根據人格特質和當前情緒選擇最符合缺陷人格的策略。",
     ]
 

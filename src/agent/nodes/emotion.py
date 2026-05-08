@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+import random
+
 from agent.config import AgentConfig
 from agent.state import AgentState
 from agent.utils import clamp
 
 DELTA_MAP = {
     "normal": -0.08,
-    "negative_feedback": 0.25,  # 提高負面回饋的情緒影響
+    "negative_feedback": 0.25,
     "sensitive_topic": 0.35,
-    "task_request": 0.1,  # 被要求做事也會有點不高興
-    "questioning": 0.2,  # 被質疑會生氣
+    "task_request": 0.1,
+    "questioning": 0.2,
 }
 
-# 傲嬌加成：如果被罵且 tsundere 特質高，情緒上升更多
 TSUNDERE_BONUS = 0.15
+BURST_BONUS = 0.30
 
 
 def update_emotion(state: AgentState, config: AgentConfig) -> AgentState:
@@ -25,21 +27,38 @@ def update_emotion(state: AgentState, config: AgentConfig) -> AgentState:
     volatility = state.get("volatility", config.volatility)
     decay = state.get("emotion_decay", config.emotion_decay)
     traits = state.get("traits", config.traits)
+    burst_pending = state.get("burst_pending", False)
 
-    # 傲嬌加成：被罵時特別容易激動
     if category == "negative_feedback" and traits.get("tsundere", 0.0) >= 0.7:
         delta += TSUNDERE_BONUS
 
-    # 策略加成：某些策略會影響情緒
+    if burst_pending:
+        delta += BURST_BONUS
+
     if strategy == "tsundere_retort":
-        delta += 0.1  # 傲嬌反擊後情緒會更高
+        delta += 0.1
     elif strategy == "excuse":
-        delta -= 0.05  # 找藉口後稍微冷靜
+        delta -= 0.05
     elif strategy == "gaslight":
-        delta += 0.05  # 說謊會讓情緒稍微上升
+        delta += 0.05
+    elif strategy == "self_contradict":
+        delta += 0.08
+    elif strategy == "over_associate":
+        delta -= 0.03
+    elif strategy == "incorrect_correct":
+        delta += 0.07
+    elif strategy == "sudden_competence":
+        delta -= 0.12
+    elif strategy == "emotion_burst":
+        delta += 0.2
+
+    jitter = random.uniform(-config.emotion_jitter, config.emotion_jitter)
+
+    if burst_pending:
+        jitter += random.uniform(0, config.emotion_jitter * 2)
 
     new_emotion = clamp(
-        emotion + delta * volatility * intensity - decay,
+        emotion + delta * volatility * intensity - decay + jitter,
         config.emotion_bounds[0],
         config.emotion_bounds[1],
     )

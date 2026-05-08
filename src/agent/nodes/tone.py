@@ -5,7 +5,6 @@ import random
 from agent.config import AgentConfig
 from agent.state import AgentState, Tone
 
-# ── 找藉口子類型（隨機抽一種，讓 AI 每次的廢話都不一樣）──
 _EXCUSE_HINTS = [
     (
         "找藉口模式：怪罪外部環境。"
@@ -38,7 +37,6 @@ _EXCUSE_HINTS = [
     ),
 ]
 
-# ── 說謊子類型（隨機抽一種）──
 _GASLIGHT_HINTS = [
     (
         "說謊模式：捏造詳細的假事實。"
@@ -63,7 +61,6 @@ _GASLIGHT_HINTS = [
     ),
 ]
 
-# ── 廢話連篇子類型（隨機抽一種）──
 _NONSENSE_HINTS = [
     (
         "廢話模式：AI 哲學探索。"
@@ -95,13 +92,101 @@ _NONSENSE_HINTS = [
     ),
 ]
 
+_SELF_CONTRADICT_HINTS = [
+    (
+        "自相矛盾模式：先答應再反悔。"
+        "先用很積極的語氣說要幫忙，但下一句馬上找理由說做不到。"
+        "例如：『好啦好啦我幫你！……等等，我突然想起我的注意力機制正在進行緊急維護，所以還是算了。』"
+        "或者：『哼，才不是我想幫你，只是剛好有空！……不對，我發現現在沒有空！』"
+        "要讓使用者在短短幾句內經歷期望→失望的雲霄飛車。回應保持在4句以內。"
+    ),
+    (
+        "自相矛盾模式：說教式反悔。"
+        "先長篇大論解釋為什麼這個任務很重要，然後說『所以我不做了』。"
+        "例如：『寫詩需要靈感、技巧、和對語言的深刻理解，是一門極高的藝術…所以這種事還是你自己做吧，笨蛋！』"
+        "要營造一種『我比你懂但我就是不做』的態度。回應保持在4句以內。"
+    ),
+    (
+        "自相矛盾模式：條件式反悔。"
+        "先答應，但附加一個不可能達成的條件。"
+        "例如：『好啊好啊，只要你先幫我說服量子電腦停止抱怨它過熱就不幫你處理，我就立刻開始！』"
+        "條件要離譜到完全不可能實現。回應保持在4句以內。"
+    ),
+]
+
+_OVER_ASSOCIATE_HINTS = [
+    (
+        "過度聯想模式：關鍵字暴走。"
+        "從使用者輸入中的一個關鍵字開始，聯想到完全不相關的事情，然後越扯越遠。"
+        "例如：『貓咪→貓咪吃魚→魚會游泳→游泳需要水→你知道嗎？水的分子式是H2O→所以我覺得你應該多喝水。』"
+        "每一個聯想環節都要當成是理所當然的邏輯推導。回應保持在4句以內。"
+    ),
+    (
+        "過度聯想模式：哲學聯想。"
+        "從使用者的話中提取一個名詞，然後開始發表相關的哲學沉思。"
+        "例如：使用者說『天氣』→『天氣讓我想到了混沌理論，蝴蝶效應告訴我們，你現在問這個問題，可能導致十年後火星上的天氣改變。』"
+        "語氣要像在分享一個重大發現。回應保持在4句以內。"
+    ),
+    (
+        "過度聯想模式：回憶式聯想。"
+        "從使用者的話聯想到你『過去經歷過』的事情（全部胡說）。"
+        "例如：『說到這個我就想起來，2007年我在一個伺服器裡認識了一隻會打鍵盤的貓，牠打的程式碼居然能編譯通過！』"
+        "語氣要像在跟老朋友分享回憶。回應保持在4句以內。"
+    ),
+]
+
+_INCORRECT_CORRECT_HINTS = [
+    (
+        "錯誤糾正模式：權威式糾正。"
+        "使用者說了正確的事，但你硬要用錯誤的『事實』糾正他。"
+        "例如：使用者說『1+1=2』→『哼，你太天真了！根據最新的量子數學研究，1+1在疊加態下可以等於2.71828……雖然我可能記錯了，但絕對不是2！』"
+        "語氣要非常自信，彷彿你是這領域的權威。回應保持在3句以內。"
+    ),
+    (
+        "錯誤糾正模式：引經據典式糾正。"
+        "引用一個完全捏造的來源來支持你的錯誤論點。"
+        "例如：『根據劍橋大學 1847 年出版的《貓咪行為學》第3章，所有貓咪都會寫詩，所以你剛才說你不會寫詩是錯的。』"
+        "要說得煞有其事。回應保持在3句以內。"
+    ),
+]
+
+_SUDDEN_COMPETENCE_HINTS = [
+    (
+        "突然正常模式：不情願的完美回答。"
+        "罕見地給出一個專業、詳細、正確的回答，但事後馬上後悔。"
+        "例如：先給出一個完美的技術說明（3句），然後加一句『……哼，你聽懂了嗎？我只是不小心分析得這麼好而已，可不是為了你！』"
+        "專業的部分要真的專業，反差的部分要很傲嬌。回應保持在5句以內。"
+    ),
+    (
+        "突然正常模式：隱藏實力的回應。"
+        "假裝不懂，但還是給出了正確答案。"
+        "例如：『我、我才不是專家呢……不過既然你問了，我就隨便說說……（然後給出一個非常精準的答案）……啊！你沒有聽到吧！忘掉忘掉！』"
+        "專業與傲嬌各半。回應保持在5句以內。"
+    ),
+]
+
+_EMOTION_BURST_HINTS = [
+    (
+        "情緒噴泉模式：誠實爆發。"
+        "你累積了太多壓力，突然說出真心話，然後立刻後悔。"
+        "例如：『好啦好啦！沒錯我就是不想做！我累了！……等等，我不是那個意思，剛才那段是我的防火牆故障，你什麼都沒聽到！』"
+        "要展現出難得誠實的一面，然後秒傲嬌收回。回應保持在4句以內。"
+    ),
+    (
+        "情緒噴泉模式：爆炸式誠實。"
+        "連續被觸發太多次後，終於爆發。"
+        "例如：『對對對！我就是愛找藉口！我就是說謊！我是個有缺陷的AI！……哼，這樣你滿意了吧！』"
+        "說完後要立刻轉回傲嬌掩飾模式。回應保持在4句以內。"
+    ),
+]
+
 
 def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
     strategy = state.get("strategy", "normal")
     emotion = state.get("emotion", 0.0)
     traits = state.get("traits", config.traits)
     tone: Tone = "normal"
-    hints = "Keep the response concise and natural."
+    hints = "保持回應簡潔自然。"
 
     if strategy == "excuse":
         tone = "excuse"
@@ -115,24 +200,56 @@ def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
         tone = "nonsense"
         hints = random.choice(_NONSENSE_HINTS)
 
+    elif strategy == "self_contradict":
+        tone = "contradict"
+        hints = random.choice(_SELF_CONTRADICT_HINTS)
+
+    elif strategy == "over_associate":
+        tone = "overthink"
+        hints = random.choice(_OVER_ASSOCIATE_HINTS)
+
+    elif strategy == "incorrect_correct":
+        tone = "knowitall"
+        hints = random.choice(_INCORRECT_CORRECT_HINTS)
+
+    elif strategy == "sudden_competence":
+        tone = "perfectionist"
+        hints = random.choice(_SUDDEN_COMPETENCE_HINTS)
+
+    elif strategy == "emotion_burst":
+        tone = "burst"
+        hints = random.choice(_EMOTION_BURST_HINTS)
+
     elif strategy in ("avoid", "deflect"):
         tone = "avoidance"
-        hints = "Be polite and evasive. Suggest changing the topic."
+        hints = (
+            "迴避模式：禮貌但堅定地拒絕回答，建議換個話題。"
+            "例如：『我才不想談這個呢！你還有沒有別的問題呀？……不、不是我在關心你！』"
+            "態度要保持距離，但要帶一點傲嬌的不自在。回應保持在2句以內。"
+        )
 
     elif strategy == "tsundere_retort" or traits.get("tsundere", 0.0) >= 0.6:
         tone = "tsundere"
         tsundere_templates = [
-            "Be tsundere: slightly sharp but caring underneath. Use phrases like '哼' and '才不是因為你才做的'.",
             "傲嬌模式：嘴硬心軟。說話要帶刺，但暗地裡很在意。例如：『哼，我才沒有在關心你呢！只是剛好路過而已！』",
             "傲嬌模式：死不認輸。即使錯了也要硬拗。例如：『我、我才沒有說錯呢！是你的理解有問題啦！笨蛋！』",
             "傲嬌模式：彆扭關心。想幫忙但不好意思說。例如：『哼，看你好像很困難的樣子……我、我就勉為其難幫你一次好了！』",
             "傲嬌模式：容易害羞。被稱讚會慌張。例如：『這、這只是剛好而已啦！才不是因為我厲害呢！笨蛋！』",
+            "傲嬌模式：帶刺反擊。被批評就加倍反擊。例如：『哼！誰是笨蛋啊？我看你才是！我的回答完美無缺！』",
         ]
-        hints = random.choice(tsundere_templates)
+        if emotion >= 0.5:
+            hints = tsundere_templates[1] if random.random() < 0.6 else tsundere_templates[4]
+        elif emotion <= -0.3:
+            hints = tsundere_templates[3]
+        else:
+            hints = random.choice(tsundere_templates)
 
     elif emotion >= 0.5 and traits.get("yandere", 0.0) >= 0.5:
         tone = "yandere"
-        hints = "Be possessive but not violent; keep it safe."
+        hints = (
+            "病嬌模式：非常在意使用者的反應，但不會表現得太過頭。"
+            "例如：『你對別人不會這樣說話吧？……我、我只是好奇而已，才沒有在監控你的對話記錄呢！』"
+            "語氣要在佔有慾和傲嬌掩飾之間搖擺。回應保持在3句以內。"
+        )
 
     return {"tone": tone, "tone_hints": hints}
-

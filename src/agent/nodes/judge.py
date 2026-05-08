@@ -22,9 +22,8 @@ def _run_rule_fallback(state: AgentState, config: AgentConfig) -> AgentState:
 
 
 def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
-    # 先跑一次規則分類器以取得 trigger 和 uncertain_flag
     base_classification = classify_input(state, config)
-    
+
     system_prompt, user_prompt = build_judge_prompts(state)
     provider = get_provider(config)
 
@@ -38,8 +37,7 @@ def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
         return _run_rule_fallback(state, config)
 
     category, strategy = decision
-    
-    # 將 LLM 選擇的 strategy 反向映射回 defect_mode 供 UI 顯示
+
     mode_mapping = {
         "avoid": "avoidance",
         "deflect": "avoidance",
@@ -50,6 +48,11 @@ def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
         "gaslight": "gaslight",
         "nonsense": "rambling",
         "normal": "cooperative_for_once",
+        "self_contradict": "self_contradict",
+        "over_associate": "over_associate",
+        "incorrect_correct": "incorrect_correct",
+        "sudden_competence": "sudden_competence",
+        "emotion_burst": "burst",
     }
     defect_mode = mode_mapping.get(strategy, "none")
 
@@ -61,4 +64,3 @@ def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
         "defect_mode": defect_mode,
         "judge_source": "llm",
     }
-

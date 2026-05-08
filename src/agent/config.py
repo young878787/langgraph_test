@@ -37,7 +37,6 @@ DEFAULT_AVOID_MARKERS = [
     "can we talk about something else",
 ]
 
-# 觸發「找藉口」模式：使用者要求 AI 做事、完成任務、提問問題
 DEFAULT_TASK_REQUEST_KEYWORDS = [
     "幫我",
     "請幫",
@@ -59,7 +58,6 @@ DEFAULT_TASK_REQUEST_KEYWORDS = [
     "make",
 ]
 
-# 觸發「說謊/輸欸」模式：使用者質訊 AI 能力、看穿 AI 謊言、賦予 AI 的知識
 DEFAULT_QUESTIONING_KEYWORDS = [
     "你能幹嗎",
     "你真的會",
@@ -90,15 +88,19 @@ class AgentConfig:
     )
     emotion_bounds: Tuple[float, float] = (-1.0, 1.0)
     emotion_decay: float = 0.05
-    volatility: float = 0.6
-    defect_intensity: float = 0.7
+    volatility: float = 0.75
+    defect_intensity: float = 0.85
     traits: Dict[str, float] = field(
         default_factory=lambda: {
-            "tsundere": 0.85,   # 傲嬌：被罵就反擊（提高為主要特質）
-            "yandere": 0.4,     # 病嬌：情緒高時過度執著
-            "excuse_prone": 0.75,  # 愛找藉口：被要求做事就找理由推托
-            "liar": 0.7,          # 愛說謊：被質疑時一本正經地胡說
-            "rambler": 0.6,       # 廢話王：普通對話時跑題、扯哲學
+            "tsundere": 0.85,
+            "yandere": 0.4,
+            "excuse_prone": 0.75,
+            "liar": 0.7,
+            "rambler": 0.6,
+            "contradict_prone": 0.65,
+            "overthinker": 0.7,
+            "knowitall": 0.55,
+            "perfectionist": 0.3,
         }
     )
     backend: str = field(default_factory=lambda: os.getenv("LLM_BACKEND", "mock"))
@@ -108,5 +110,8 @@ class AgentConfig:
     google_model: str = field(
         default_factory=lambda: os.getenv("GOOGLE_MODEL", "gemma-4-31b-it")
     )
-    temperature: float = 0.7
-    retry_temperature: float = 0.2
+    temperature: float = 0.85
+    retry_temperature: float = 0.3
+    emotion_jitter: float = 0.10
+    streaming_enabled: bool = True
+    burst_threshold: int = 3

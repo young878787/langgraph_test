@@ -13,7 +13,16 @@ from agent.nodes import (
 )
 
 
-def build_graph(config: AgentConfig | None = None):
+def _should_skip_emotion(state: AgentState) -> str:
+    category = state.get("category", "normal")
+    user_input = state.get("user_input", "")
+
+    if category == "normal" and len(user_input) < 5:
+        return "tone"
+    return "emotion"
+
+
+def build_graph(config: AgentConfig | None = None, interrupt_before_respond: bool = False):
     config = config or AgentConfig()
     graph = StateGraph(AgentState)
 
@@ -24,13 +33,25 @@ def build_graph(config: AgentConfig | None = None):
     graph.add_node("writeback", writeback)
 
     graph.set_entry_point("judge")
-    graph.add_edge("judge", "emotion")
+
+    graph.add_conditional_edges(
+        "judge",
+        _should_skip_emotion,
+        {
+            "emotion": "emotion",
+            "tone": "tone",
+        },
+    )
     graph.add_edge("emotion", "tone")
     graph.add_edge("tone", "respond")
     graph.add_edge("respond", "writeback")
     graph.add_edge("writeback", END)
 
-    return graph.compile()
+    compile_kwargs = {}
+    if interrupt_before_respond:
+        compile_kwargs["interrupt_before"] = ["respond"]
+
+    return graph.compile(**compile_kwargs)
 
 
 def new_state(config: AgentConfig | None = None) -> AgentState:
