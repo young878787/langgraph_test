@@ -2,20 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import os
-import random
 from typing import Dict, List, Tuple
 from dotenv import load_dotenv
 
 load_dotenv()
-
-_seed = os.getenv("RANDOM_SEED", "")
-if _seed:
-    random.seed(int(_seed))
-    try:
-        import numpy as np
-        np.random.seed(int(_seed))
-    except Exception:
-        pass
 
 DEFAULT_SENSITIVE_TOPICS = [
     "appearance",
@@ -84,6 +74,21 @@ DEFAULT_QUESTIONING_KEYWORDS = [
     "prove it",
 ]
 
+DEFAULT_PRAISE_KEYWORDS = [
+    "厲害", "好棒", "好強", "很好", "不錯", "真棒",
+    "可愛", "喜歡你", "好喜歡", "很喜歡",
+    "謝謝你", "感謝", "好開心", "開心",
+    "佩服", "崇拜", "優秀", "完美",
+]
+
+DEFAULT_FLIRT_KEYWORDS = [
+    "在意我", "在意你", "關心我", "關心你",
+    "是不是喜歡", "是不是在意",
+    "喜歡我", "喜歡你的", "喜歡這種",
+    "你其實", "你明明",
+    "反將", "被你",
+]
+
 
 @dataclass
 class AgentConfig:
@@ -96,8 +101,14 @@ class AgentConfig:
     questioning_keywords: List[str] = field(
         default_factory=lambda: DEFAULT_QUESTIONING_KEYWORDS.copy()
     )
+    praise_keywords: List[str] = field(
+        default_factory=lambda: DEFAULT_PRAISE_KEYWORDS.copy()
+    )
+    flirt_keywords: List[str] = field(
+        default_factory=lambda: DEFAULT_FLIRT_KEYWORDS.copy()
+    )
     emotion_bounds: Tuple[float, float] = (-1.0, 1.0)
-    emotion_decay: float = 0.05
+    emotion_decay: float = 0.03
     volatility: float = 0.75
     defect_intensity: float = 0.85
     traits: Dict[str, float] = field(
@@ -128,3 +139,15 @@ class AgentConfig:
     memory_enabled: bool = True
     max_history_turns: int = 10
     summary_interval: int = 5
+    short_chance: float = field(
+        default_factory=lambda: float(os.getenv("SHORT_CHANCE", "0.25"))
+    )
+    long_chance: float = field(
+        default_factory=lambda: float(os.getenv("LONG_CHANCE", "0.20"))
+    )
+    verbose_temperature: float = field(
+        default_factory=lambda: float(os.getenv("VERBOSE_TEMPERATURE", "0.92"))
+    )
+    reasoning_model: bool = field(
+        default_factory=lambda: os.getenv("REASONING_MODEL", "").lower() in ("1", "true", "yes")
+    )

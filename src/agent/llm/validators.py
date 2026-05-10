@@ -83,8 +83,10 @@ _FALLBACK_EMOTION_BURST = [
 def is_on_strategy(state: AgentState, response: str, config: AgentConfig) -> bool:
     strategy = state.get("strategy", "normal")
     response_lower = response.lower()
+    response_length = state.get("response_length", "medium")
 
-    if not response or len(response.strip()) < 5:
+    min_len = {"short": 2, "medium": 5, "long": 20}.get(response_length, 5)
+    if not response or len(response.strip()) < min_len:
         return False
 
     if strategy in ("avoid", "deflect"):
@@ -108,6 +110,8 @@ def is_on_strategy(state: AgentState, response: str, config: AgentConfig) -> boo
         return True
 
     if strategy == "nonsense":
+        if response_length == "short":
+            return True
         return len(response) >= 30
 
     if strategy == "self_contradict":
@@ -117,6 +121,8 @@ def is_on_strategy(state: AgentState, response: str, config: AgentConfig) -> boo
         return len(response) >= 20
 
     if strategy == "over_associate":
+        if response_length == "short":
+            return True
         return len(response) >= 30
 
     if strategy == "incorrect_correct":
@@ -126,6 +132,8 @@ def is_on_strategy(state: AgentState, response: str, config: AgentConfig) -> boo
         return True
 
     if strategy == "sudden_competence":
+        if response_length == "short":
+            return True
         return len(response) >= 30
 
     if strategy == "emotion_burst":

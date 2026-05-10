@@ -12,6 +12,7 @@ from google.genai import types
 import re
 
 from agent.config import AgentConfig
+from agent.logger import log_error
 
 
 def clean_response(raw_response: str) -> str:
@@ -83,7 +84,7 @@ class LLMProvider:
     def generate(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
         raise NotImplementedError
 
-    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float) -> Generator[str, None, None]:
+    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float, conversation_history: List[dict] = None) -> Generator[str, None, None]:
         raise NotImplementedError
 
     def generate_with_history(
@@ -128,7 +129,7 @@ class MockProvider(LLMProvider):
             return "好啦好啦！我就是愛找藉口！我就是不想做事！我承認了！……等等，你沒有聽到剛才那段話吧？那是系統故障！"
         return "哼，我聽到了啦！不用再說了！"
 
-    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float) -> Generator[str, None, None]:
+    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float, conversation_history: List[dict] = None) -> Generator[str, None, None]:
         import random
         response = self.generate(system_prompt, user_prompt, temperature)
         for char in response:
@@ -183,10 +184,18 @@ class OpenRouterProvider(LLMProvider):
                     return result
 
             except urllib.error.HTTPError as e:
+                body = ""
+                try:
+                    body = e.read().decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+                log_error("providers", "_make_request",
+                          RuntimeError(f"HTTP {e.code}: {body[:300]}"),
+                          {"model": self.model, "attempt": attempt + 1})
                 if attempt < max_retries - 1 and e.code in [429, 500, 502, 503, 504]:
                     time.sleep(2 ** attempt)
                     continue
-                raise RuntimeError(f"OpenRouter API HTTP Error {e.code}: {e.reason}")
+                raise RuntimeError(f"OpenRouter API HTTP Error {e.code}: {body[:200]}")
             except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as e:
                 if attempt < max_retries - 1:
                     time.sleep(1)
@@ -206,10 +215,14 @@ class OpenRouterProvider(LLMProvider):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
-        return self._make_request(messages, temperature)
+        raw = self._make_request(messages, temperature)
+        return clean_response(raw)
 
-    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float) -> Generator[str, None, None]:
-        result = self.generate(system_prompt, user_prompt, temperature)
+    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float, conversation_history: List[dict] = None) -> Generator[str, None, None]:
+        if conversation_history:
+            result = self.generate_with_history(system_prompt, user_prompt, temperature, conversation_history)
+        else:
+            result = self.generate(system_prompt, user_prompt, temperature)
         for char in result:
             yield char
             time.sleep(0.01)
@@ -221,7 +234,8 @@ class OpenRouterProvider(LLMProvider):
                 role = "user" if entry["role"] == "user" else "assistant"
                 messages.append({"role": role, "content": entry["content"]})
         messages.append({"role": "user", "content": user_prompt})
-        return self._make_request(messages, temperature)
+        raw = self._make_request(messages, temperature)
+        return clean_response(raw)
 
 
 class GoogleAIStudioProvider(LLMProvider):
@@ -297,17 +311,37 @@ class GoogleAIStudioProvider(LLMProvider):
 
         return None
 
-    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float) -> Generator[str, None, None]:
+    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float, conversation_history: List[dict] = None) -> Generator[str, None, None]:
         config = types.GenerateContentConfig(
             temperature=temperature,
             system_instruction=system_prompt,
         )
 
+        if conversation_history:
+            from google.genai import types as gt
+            contents: list = []
+            for entry in conversation_history:
+                role = "user" if entry["role"] == "user" else "model"
+                contents.append(
+                    gt.Content(
+                        role=role,
+                        parts=[gt.Part(text=entry["content"])],
+                    )
+                )
+            contents.append(
+                gt.Content(
+                    role="user",
+                    parts=[gt.Part(text=user_prompt)],
+                )
+            )
+        else:
+            contents = user_prompt
+
         full_text = ""
         try:
             for chunk in self.client.models.generate_content_stream(
                 model=self.model,
-                contents=user_prompt,
+                contents=contents,
                 config=config,
             ):
                 if chunk.text:
@@ -318,7 +352,7 @@ class GoogleAIStudioProvider(LLMProvider):
                 yield f"[串流失敗: {str(e)}]"
 
         cleaned = clean_response(full_text)
-        if cleaned:
+        if cleaned and cleaned != full_text:
             yield cleaned
 
     def generate_with_history(

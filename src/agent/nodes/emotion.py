@@ -12,10 +12,13 @@ DELTA_MAP = {
     "sensitive_topic": 0.35,
     "task_request": 0.1,
     "questioning": 0.2,
+    "praise": -0.15,
+    "flirt": -0.10,
 }
 
 TSUNDERE_BONUS = 0.15
 BURST_BONUS = 0.30
+BASE_DECAY = 0.03
 
 
 def update_emotion(state: AgentState, config: AgentConfig) -> AgentState:
@@ -25,15 +28,23 @@ def update_emotion(state: AgentState, config: AgentConfig) -> AgentState:
     delta = DELTA_MAP.get(category, -0.05)
     intensity = state.get("defect_intensity", config.defect_intensity)
     volatility = state.get("volatility", config.volatility)
-    decay = state.get("emotion_decay", config.emotion_decay)
     traits = state.get("traits", config.traits)
     burst_pending = state.get("burst_pending", False)
+    turn_count = state.get("turn_count", 0)
+
+    decay = BASE_DECAY
+    if turn_count > 5:
+        decay = BASE_DECAY * (5.0 / max(turn_count, 1))
 
     if category == "negative_feedback" and traits.get("tsundere", 0.0) >= 0.7:
         delta += TSUNDERE_BONUS
 
     if burst_pending:
         delta += BURST_BONUS
+
+    if category in ("praise", "flirt"):
+        delta += 0.30
+        decay *= 0.5
 
     if strategy == "tsundere_retort":
         delta += 0.1

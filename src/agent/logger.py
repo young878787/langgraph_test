@@ -90,11 +90,11 @@ def log_prompt(
     system_prompt: str,
     response: str,
     strategy: str,
-    tone: str,
-    defect_mode: str,
     emotion: float,
     model: Optional[str] = None,
     temperature: Optional[float] = None,
+    tone: Optional[str] = None,
+    defect_mode: Optional[str] = None,
 ) -> None:
     """
     記錄輸入輸出的格式化資訊到 prompts.log 和 prompts.md
@@ -105,8 +105,6 @@ def log_prompt(
         system_prompt: 系統提示詞
         response: 模型回應
         strategy: 策略
-        tone: 語氣
-        defect_mode: 缺陷模式
         emotion: 情緒值
         model: 使用的模型（選用）
         temperature: 溫度參數（選用）
@@ -128,11 +126,13 @@ def log_prompt(
 
 元數據:
   - 策略: {strategy}
-  - 語氣: {tone}
-  - 缺陷模式: {defect_mode}
   - 情緒值: {emotion:.3f}
 """
     
+    if tone:
+        log_entry += f"  - 語氣: {tone}\n"
+    if defect_mode:
+        log_entry += f"  - 缺陷模式: {defect_mode}\n"
     if model:
         log_entry += f"  - 模型: {model}\n"
     if temperature is not None:
@@ -155,8 +155,6 @@ def log_prompt(
         system_prompt=system_prompt,
         response=response,
         strategy=strategy,
-        tone=tone,
-        defect_mode=defect_mode,
         emotion=emotion,
         model=model,
         temperature=temperature
@@ -231,8 +229,6 @@ def _write_markdown_log(
     system_prompt: str,
     response: str,
     strategy: str,
-    tone: str,
-    defect_mode: str,
     emotion: float,
     model: Optional[str] = None,
     temperature: Optional[float] = None,
@@ -243,11 +239,11 @@ def _write_markdown_log(
     Args:
         各參數同 log_prompt
     """
-    # 情緒條和表情
-    emotion_bar = _fmt_emotion_bar_md(emotion)
-    defect_emoji = _fmt_defect_emoji_md(defect_mode)
+    from agent.state import STRATEGY_EMOJI
     
-    # 構建 Markdown 條目
+    emotion_bar = _fmt_emotion_bar_md(emotion)
+    strategy_emoji = STRATEGY_EMOJI.get(strategy, f"❓ {strategy}")
+    
     md_entry = f"""
 ## 📌 場景 {scenario_id}
 
@@ -266,9 +262,7 @@ def _write_markdown_log(
 ### 📊 元數據
 | 項目 | 值 |
 |------|-----|
-| 🎯 策略 | {strategy} |
-| 🎭 語氣 | {tone} |
-| 💥 缺陷模式 | {defect_emoji} |
+| 🔀 行為 | {strategy_emoji} |
 | 😊 情緒值 | {emotion_bar} |
 """
     
@@ -302,30 +296,3 @@ def _fmt_emotion_bar_md(value: float) -> str:
     else:
         label = "😌 冷靜"
     return f"[{bar}] {label} `{value:+.3f}`"
-
-
-def _fmt_defect_emoji_md(defect_mode: str) -> str:
-    """格式化缺陷模式（Markdown 版本）"""
-    emoji_map = {
-        "excuse": "🙅 找藉口",
-        "gaslight": "🎭 說謊",
-        "rambling": "💬 廢話",
-        "random_ramble": "🌀 跑題",
-        "tsundere": "😤 傲嬌",
-        "angry_denial": "🔥 否認",
-        "avoidance": "🫣 迴避",
-        "defend": "🛡️ 防禦",
-        "cooperative_for_once": "😇 配合",
-        "honest_defense": "🤷 誠實",
-        "yandere_protect": "💘 病嬌",
-        "self_contradict": "🔄 矛盾",
-        "over_associate": "🦋 聯想",
-        "incorrect_correct": "🤓 糾錯",
-        "sudden_competence": "✨ 正常",
-        "burst": "💥 噴泉",
-        "none": "😐 一般",
-        "normal": "😐 一般",
-        "emotion_burst": "💥 噴泉",
-        "error": "⚠️ 故障",
-    }
-    return emoji_map.get(defect_mode, f"❓ {defect_mode}")

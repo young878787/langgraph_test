@@ -75,6 +75,7 @@ def _fmt_defect_emoji(defect_mode: str) -> str:
         "normal": "😐 一般",
         "emotion_burst": "💥 噴泉",
         "error": "⚠️ 故障",
+        "tsundere_retort": "😤 傲嬌",
     }
     return emoji_map.get(defect_mode, f"❓ {defect_mode}")
 
@@ -125,23 +126,21 @@ def continuous_validation():
             )
             curr_emotion = state.get("emotion", prev_emotion)
             response = f"（AI 暫時故障中...哼，才不是我的問題！）"
-            defect_mode = "error"
             strategy = "error"
             tone = "error"
             trigger = ""
             state["response"] = response
-            state["defect_mode"] = defect_mode
             state["strategy"] = strategy
 
         curr_emotion = state.get("emotion", prev_emotion)
         emotion_delta = curr_emotion - prev_emotion
         strategy = state.get("strategy", "error")
         tone = state.get("tone", "unknown")
-        defect_mode = state.get("defect_mode", "error")
         response = state.get("response", "")
         trigger = state.get("trigger", "")
         ch = state.get("conversation_history", [])
         memory_turns = len([e for e in ch if e["role"] == "user"])
+        fallback_used = state.get("fallback_used", False)
 
         if emotion_delta > 0.05:
             indicator = "📈"
@@ -171,10 +170,12 @@ def continuous_validation():
                 print(f"│     {response[i:i+66]}")
         print(f"│")
         print(f"│ 🎭 {_fmt_emotion_bar(curr_emotion)} {indicator} "
-              f"│ {_fmt_defect_emoji(defect_mode)} "
+              f"│ {_fmt_defect_emoji(strategy)} "
               f"│ 策略:{strategy}")
         if trigger:
             print(f"│ ⚡ 觸發詞: {trigger}")
+        if fallback_used:
+            print(f"│ ⚠️  [後備模式] LLM 呼叫失敗，使用預設回應")
         print(f"└{'─' * 70}┘")
         print()
 
@@ -183,12 +184,13 @@ def continuous_validation():
                 scenario_id=idx, user_input=prompt,
                 system_prompt=str(state.get("system_prompt", "")),
                 response=response, strategy=strategy, tone=tone,
-                defect_mode=defect_mode, emotion=curr_emotion,
+                defect_mode=strategy, emotion=curr_emotion,
                 model=config.google_model if config.backend == "google" else config.openrouter_model,
                 temperature=config.temperature,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log_error(module="main", function="continuous_validation", error=e,
+                      context={"turn": idx, "reason": "log_prompt_failed"})
 
         emotion_history.append(curr_emotion)
         strategy_history.append(strategy)
@@ -254,11 +256,12 @@ def interactive_chat():
 
                 system_prompt, user_prompt = build_prompts(state)
                 provider = get_provider(config)
+                conv_hist = state.get("conversation_history", [])
 
                 print(f"\n⏳ AI 思考中...  ", end="", flush=True)
                 full_response = ""
                 try:
-                    for chunk in provider.generate_stream(system_prompt, user_prompt, config.temperature):
+                    for chunk in provider.generate_stream(system_prompt, user_prompt, config.temperature, conv_hist):
                         if full_response == "":
                             print(f"\r🤖 AI: ", end="", flush=True)
                         print(chunk, end="", flush=True)
@@ -285,15 +288,18 @@ def interactive_chat():
                     response=state.get("response", ""),
                     strategy=state.get("strategy", "unknown"),
                     tone=state.get("tone", "unknown"),
-                    defect_mode=state.get("defect_mode", "none"),
+                    defect_mode=state.get("strategy", "unknown"),
                     emotion=state.get("emotion", 0.0),
                     model=config.google_model if config.backend == "google" else config.openrouter_model,
                     temperature=config.temperature,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log_error(module="main", function="interactive_chat", error=e,
+                          context={"chat": chat_counter, "reason": "log_prompt_failed"})
 
             print(f"  🎭 {_fmt_emotion_bar(state.get('emotion', 0.0))}")
+            if state.get("fallback_used", False):
+                print(f"  ⚠️  [後備模式] LLM 呼叫失敗，使用預設回應")
 
         except KeyboardInterrupt:
             break
@@ -342,6 +348,7 @@ def continuous_chat_mode():
                 state = new_state(config)
                 state["memory_enabled"] = True
                 state["mode"] = "continuous"
+                state["reasoning_model"] = config.reasoning_model
                 turn_number = 0
                 print("🔄 記憶已重置！人格回到初始狀態。")
                 continue
@@ -375,7 +382,7 @@ def continuous_chat_mode():
                 print(f"\n⏳ AI 思考中...  ", end="", flush=True)
                 full_response = ""
                 try:
-                    for chunk in provider.generate_stream(system_prompt, user_prompt, config.temperature):
+                    for chunk in provider.generate_stream(system_prompt, user_prompt, config.temperature, conv_hist):
                         if full_response == "":
                             print(f"\r🤖 AI: ", end="", flush=True)
                         print(chunk, end="", flush=True)
@@ -399,7 +406,6 @@ def continuous_chat_mode():
                 print(f"\n🤖 AI: {response}")
 
             curr_emotion = state.get("emotion", 0.0)
-            defect_mode = state.get("defect_mode", "none")
             strategy = state.get("strategy", "unknown")
             trigger = state.get("trigger", "")
             ch_len = len(state.get("conversation_history", []))
@@ -412,18 +418,21 @@ def continuous_chat_mode():
                     response=state.get("response", ""),
                     strategy=strategy,
                     tone=state.get("tone", "unknown"),
-                    defect_mode=defect_mode,
+                    defect_mode=strategy,
                     emotion=curr_emotion,
                     model=config.google_model if config.backend == "google" else config.openrouter_model,
                     temperature=config.temperature,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log_error(module="main", function="continuous_chat_mode", error=e,
+                          context={"turn": turn_number, "reason": "log_prompt_failed"})
 
             print(f"  🎭 {_fmt_emotion_bar(curr_emotion)} | "
-                  f"{_fmt_defect_emoji(defect_mode)} | "
+                  f"{_fmt_defect_emoji(strategy)} | "
                   f"📝 記憶: {turn_number} 輪 | "
                   f"{'⚡' + trigger if trigger else ''}")
+            if state.get("fallback_used", False):
+                print(f"  ⚠️  [後備模式] LLM 呼叫失敗，使用預設回應")
 
         except KeyboardInterrupt:
             break
@@ -448,6 +457,21 @@ def continuous_chat_mode():
 def main():
     init_logs()
     print("📝 日誌系統已初始化 (logs/error.log, logs/prompts.log)")
+
+    config = AgentConfig()
+    if config.backend == "openrouter":
+        api_key = os.getenv("OPENROUTER_API_KEY", "")
+        if not api_key:
+            print("\n❌ OPENROUTER_API_KEY 未設定！請在 .env 檔案中設定有效的 API Key。")
+            print("   取得方式：https://openrouter.ai/keys")
+            return
+        if len(api_key) < 30:
+            print(f"\n❌ OPENROUTER_API_KEY 格式異常（長度 {len(api_key)}），請檢查 .env 檔案。")
+            return
+        if not api_key.startswith("sk-or-"):
+            print(f"\n⚠️  OPENROUTER_API_KEY 開頭不是 'sk-or-'，可能不是有效的 OpenRouter Key。")
+            print(f"   當前 Key 開頭: {api_key[:15]}...")
+            print(f"   請確認 .env 中 OPENROUTER_API_KEY 和 OPENROUTER_MODEL 欄位沒有互換。")
 
     print("\n" + "=" * 70)
     print("🎭 缺陷人格 AI v3 — 連續對話 + 記憶追蹤")

@@ -23,6 +23,7 @@ if _seed:
 
 from agent.config import AgentConfig
 from agent.graph import build_graph, new_state
+from agent.state import STRATEGY_EMOJI
 
 SCENARIOS = [
     "早安，今天天氣怎麼樣？",
@@ -75,9 +76,7 @@ def run_scenarios() -> None:
         curr_emotion = state.get("emotion", 0.0)
         emotion_delta = curr_emotion - prev_emotion
         judge_source = state.get("judge_source", "unknown")
-        defect_mode = state.get("defect_mode", "none")
         strategy = state.get("strategy", "unknown")
-        tone = state.get("tone", "unknown")
 
         if emotion_delta > 0.05:
             emotion_indicator = "📈 (情緒上升)"
@@ -86,31 +85,13 @@ def run_scenarios() -> None:
         else:
             emotion_indicator = "➡️  (情緒平穩)"
 
-        defect_emoji = {
-            "excuse": "🙅 找藉口",
-            "gaslight": "🎭 說謊煤氣燈",
-            "rambling": "💬 廢話連篇",
-            "random_ramble": "🌀 隨機跑題",
-            "tsundere": "😤 傲嬌",
-            "angry_denial": "🔥 憤怒否認",
-            "avoidance": "🫣 迴避",
-            "defend": "🛡️ 防禦",
-            "cooperative_for_once": "😇 難得配合",
-            "honest_defense": "🤷 誠實防禦",
-            "yandere_protect": "💘 病嬌守護",
-            "self_contradict": "🔄 自相矛盾",
-            "over_associate": "🦋 過度聯想",
-            "incorrect_correct": "🤓 錯誤糾正",
-            "sudden_competence": "✨ 突然正常",
-            "burst": "💥 情緒噴泉",
-            "none": "😐 正常",
-        }.get(defect_mode, f"❓ {defect_mode}")
+        strategy_emoji = STRATEGY_EMOJI.get(strategy, f"❓ {strategy}")
 
         print(f"┌{'─'*76}┐")
-        print(f"│ 【步驟 {index}】 {defect_emoji:<35}{'策略: ' + strategy:<20}│")
+        print(f"│ 【步驟 {index}】 {strategy_emoji:<35}{'策略: ' + strategy:<20}│")
         print(f"├{'─'*76}┤")
         print(f"│ 💬 輸入: {prompt}")
-        print(f"│ 🔍 分類: {state.get('category', 'unknown'):<15} 語氣: {tone:<15} 來源: {judge_source}")
+        print(f"│ 🔍 分類: {state.get('category', 'unknown'):<15} 來源: {judge_source}")
         print(f"│ 🎭 情緒: {curr_emotion:.3f} {emotion_indicator} (變化: {emotion_delta:+.3f})")
         if state.get('trigger'):
             print(f"│ ⚡ 觸發詞: {state.get('trigger')}")
@@ -147,14 +128,11 @@ def run_continuous_scenario() -> None:
         except Exception as e:
             print(f"│ ⚠️ 第 {index} 輪 API 錯誤，使用降級回應")
             state["response"] = "（AI 暫時故障中...哼，才不是我的問題！）"
-            state["defect_mode"] = "error"
             state["strategy"] = "error"
 
         curr_emotion = state.get("emotion", prev_emotion)
         emotion_delta = curr_emotion - prev_emotion
         strategy = state.get("strategy", "unknown")
-        tone = state.get("tone", "unknown")
-        defect_mode = state.get("defect_mode", "none")
         trigger = state.get("trigger", "")
         ch = state.get("conversation_history", [])
         turn_count = len([e for e in ch if e["role"] == "user"])

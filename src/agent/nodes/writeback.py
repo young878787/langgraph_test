@@ -17,7 +17,6 @@ def writeback(state: AgentState) -> AgentState:
         trigger_counters = {}
 
     emotion = state.get("emotion", 0.0)
-    defect_mode = state.get("defect_mode", "none")
     total_triggers = sum(trigger_counters.values())
 
     user_input = state.get("user_input", "")
@@ -45,7 +44,7 @@ def writeback(state: AgentState) -> AgentState:
             context_lines.append(f"[{role_short}] {ctx}")
 
     history_summary = (
-        f"turn={turn_count}; last_strategy={strategy}; defect_mode={defect_mode}; "
+        f"turn={turn_count}; strategy={strategy}; "
         f"emotion={emotion:.2f}; trigger={trigger or 'none'}; "
         f"total_triggers={total_triggers}; context={{{' '.join(context_lines)}}}"
     )

@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 輸出解析器：過濾模型輸出中的思考過程、除雜訊，只保留最終回應。
 針對 gemma4 等推理模型，它們可能會輸出 chain-of-thought 或思考過程。
 """
 
 import re
-from __future__ import annotations
 
 
 def clean_response(raw_response: str, state: dict | None = None) -> str:

@@ -10,10 +10,24 @@ from agent.nodes.defect import decide_defect_strategy
 from agent.logger import log_error
 
 
-def _run_rule_fallback(state: AgentState, config: AgentConfig) -> AgentState:
+_LLM_JUDGE_FAILURE_REPORTED = False
+
+
+def _run_smart_fallback(state: AgentState, config: AgentConfig) -> AgentState:
     classification = classify_input(state, config)
     merged_state: AgentState = {**state, **classification}
     strategy = decide_defect_strategy(merged_state, config)
+    category = classification.get("category", "normal")
+    chosen_strategy = strategy.get("strategy", "normal")
+
+    emotion = state.get("emotion", 0.0)
+    if category == "flirt" or category == "praise":
+        chosen_strategy = "tsundere_retort"
+        strategy["strategy"] = chosen_strategy
+
+    if emotion < -0.3 and chosen_strategy in ("over_associate", "nonsense"):
+        chosen_strategy = "tsundere_retort" if state.get("traits", {}).get("tsundere", 0.0) >= 0.7 else "normal"
+        strategy["strategy"] = chosen_strategy
 
     return {
         **classification,
@@ -23,9 +37,13 @@ def _run_rule_fallback(state: AgentState, config: AgentConfig) -> AgentState:
 
 
 def _safe_llm_call(provider, system_prompt, user_prompt, temperature) -> str | None:
+    global _LLM_JUDGE_FAILURE_REPORTED
     try:
         return provider.generate(system_prompt, user_prompt, temperature)
-    except Exception:
+    except Exception as e:
+        if not _LLM_JUDGE_FAILURE_REPORTED:
+            _LLM_JUDGE_FAILURE_REPORTED = True
+            log_error("judge", "_safe_llm_call", e, {"backend": type(provider).__name__})
         return None
 
 
@@ -42,33 +60,18 @@ def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
         decision = parse_judge_output(response or "")
 
     if decision is None:
-        return _run_rule_fallback(state, config)
+        return _run_smart_fallback(state, config)
 
     category, strategy = decision
 
-    mode_mapping = {
-        "avoid": "avoidance",
-        "deflect": "avoidance",
-        "deny": "angry_denial",
-        "tsundere_retort": "tsundere",
-        "defend": "defend",
-        "excuse": "excuse",
-        "gaslight": "gaslight",
-        "nonsense": "rambling",
-        "normal": "cooperative_for_once",
-        "self_contradict": "self_contradict",
-        "over_associate": "over_associate",
-        "incorrect_correct": "incorrect_correct",
-        "sudden_competence": "sudden_competence",
-        "emotion_burst": "burst",
-    }
-    defect_mode = mode_mapping.get(strategy, "none")
+    emotion = state.get("emotion", 0.0)
+    if emotion < -0.3 and strategy in ("over_associate", "nonsense"):
+        strategy = "tsundere_retort" if state.get("traits", {}).get("tsundere", 0.0) >= 0.7 else "normal"
 
     return {
         "category": category,
         "strategy": strategy,
         "trigger": base_classification.get("trigger", ""),
         "uncertain_flag": base_classification.get("uncertain_flag", False),
-        "defect_mode": defect_mode,
         "judge_source": "llm",
     }

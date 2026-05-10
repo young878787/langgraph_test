@@ -4,7 +4,8 @@ from typing import Dict, List, Literal, TypedDict
 
 from agent.config import AgentConfig
 
-Category = Literal["normal", "negative_feedback", "sensitive_topic", "task_request", "questioning"]
+Category = Literal["normal", "negative_feedback", "sensitive_topic", "task_request", "questioning", "praise", "flirt"]
+ResponseLength = Literal["short", "medium", "long"]
 Strategy = Literal[
     "normal",
     "avoid",
@@ -21,11 +22,59 @@ Strategy = Literal[
     "sudden_competence",
     "emotion_burst",
 ]
-Tone = Literal[
-    "normal", "tsundere", "yandere", "avoidance", "excuse", "gaslight", "nonsense",
-    "contradict", "overthink", "knowitall", "perfectionist", "burst",
-]
 JudgeSource = Literal["llm", "rule"]
+
+STRATEGY_LABELS: dict[str, str] = {
+    "normal": "平常",
+    "avoid": "迴避",
+    "deflect": "轉移話題",
+    "defend": "防禦",
+    "deny": "憤怒否認",
+    "tsundere_retort": "傲嬌反擊",
+    "excuse": "找藉口",
+    "gaslight": "說謊",
+    "nonsense": "廢話",
+    "self_contradict": "自相矛盾",
+    "over_associate": "過度聯想",
+    "incorrect_correct": "錯誤糾正",
+    "sudden_competence": "突然正常",
+    "emotion_burst": "情緒噴泉",
+}
+
+STRATEGY_DESCRIPTIONS: dict[str, str] = {
+    "normal": "平常的嘴硬心軟，否認完會偷偷幫忙",
+    "avoid": "禮貌但堅定地拒絕談論，帶一點不自在",
+    "deflect": "轉移話題，不正面回應",
+    "defend": "為自己辯護，但語氣中透露在意",
+    "deny": "強烈否認，情緒化反擊",
+    "tsundere_retort": "嘴硬心軟，用帶刺的話掩飾真心話",
+    "excuse": "找各種荒唐藉口推託",
+    "gaslight": "用假事實誤導，倒打一耙",
+    "nonsense": "廢話連篇，完全跑題",
+    "self_contradict": "先答應再反悔，讓使用者坐雲霄飛車",
+    "over_associate": "從關鍵字瘋狂聯想到不相關的事",
+    "incorrect_correct": "用捏造的知識硬要糾正使用者",
+    "sudden_competence": "罕見地給出專業回答，然後立刻後悔",
+    "emotion_burst": "累積壓力後爆炸式坦承，然後秒傲嬌收回",
+}
+
+STRATEGY_EMOJI: dict[str, str] = {
+    "normal": "😐 平常",
+    "avoid": "🫣 迴避",
+    "deflect": "🫣 轉移",
+    "defend": "🛡️ 防禦",
+    "deny": "🔥 否認",
+    "tsundere_retort": "😤 傲嬌",
+    "excuse": "🙅 找藉口",
+    "gaslight": "🎭 說謊",
+    "nonsense": "💬 廢話",
+    "self_contradict": "🔄 矛盾",
+    "over_associate": "🦋 聯想",
+    "incorrect_correct": "🤓 糾錯",
+    "sudden_competence": "✨ 正常",
+    "emotion_burst": "💥 噴泉",
+    "error": "⚠️ 故障",
+}
 
 
 class AgentState(TypedDict, total=False):
@@ -40,13 +89,11 @@ class AgentState(TypedDict, total=False):
     traits: Dict[str, float]
     strategy: Strategy
     strategy_history: List[Strategy]
-    tone: Tone
     tone_hints: str
     history_summary: str
     trigger_counters: Dict[str, int]
     response: str
     judge_source: JudgeSource
-    defect_mode: str
     system_prompt: str
     consecutive_same_strategy: int
     emotion_jitter: float
@@ -55,6 +102,9 @@ class AgentState(TypedDict, total=False):
     turn_count: int
     memory_enabled: bool
     mode: str
+    reasoning_model: bool
+    fallback_used: bool
+    response_length: ResponseLength
 
 
 def initial_state(config: AgentConfig) -> AgentState:
@@ -76,4 +126,7 @@ def initial_state(config: AgentConfig) -> AgentState:
         "turn_count": 0,
         "memory_enabled": config.memory_enabled,
         "mode": "single",
+        "reasoning_model": config.reasoning_model,
+        "fallback_used": False,
+        "response_length": "medium",
     }
