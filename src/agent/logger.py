@@ -8,29 +8,22 @@ from typing import Optional
 # 日志文件路径
 LOG_DIR = Path(__file__).parent.parent.parent / "logs"
 ERROR_LOG = LOG_DIR / "error.log"
-PROMPT_LOG = LOG_DIR / "prompts.log"
 PROMPT_MD = LOG_DIR / "prompts.md"
 
 
 def init_logs() -> None:
     """初始化日誌檔案，每次啟動時清空舊日誌並重新開始記錄"""
-    # 確保日誌目錄存在
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # 準備啟動資訊
+
     startup_info = f"{'=' * 80}\n=== 日誌開始: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n{'=' * 80}\n\n"
-    
-    for log_file in [ERROR_LOG, PROMPT_LOG]:
-        try:
-            # 使用 'w' 模式清空文件並寫入新的啟動資訊
-            with open(log_file, "w", encoding="utf-8") as f:
-                f.write(startup_info)
-                f.flush()
-        except Exception as e:
-            # 如果無法建立日誌檔案，至少列印錯誤
-            print(f"警告：無法初始化日誌檔案 {log_file}: {e}")
-    
-    # 初始化 Markdown 日誌
+
+    try:
+        with open(ERROR_LOG, "w", encoding="utf-8") as f:
+            f.write(startup_info)
+            f.flush()
+    except Exception as e:
+        print(f"警告：無法初始化錯誤日誌 {ERROR_LOG}: {e}")
+
     try:
         md_header = f"""# 📝 Prompts 日誌
 
@@ -43,7 +36,7 @@ def init_logs() -> None:
             f.write(md_header)
             f.flush()
     except Exception as e:
-        print(f"警告：無法初始化 Markdown 日誌檔案: {e}")
+        print(f"警告：無法初始化 Markdown 日誌 {PROMPT_MD}: {e}")
 
 
 def log_error(
@@ -95,59 +88,14 @@ def log_prompt(
     temperature: Optional[float] = None,
     tone: Optional[str] = None,
     defect_mode: Optional[str] = None,
+    ttfb_ms: Optional[float] = None,
+    total_ms: Optional[float] = None,
 ) -> None:
     """
-    記錄輸入輸出的格式化資訊到 prompts.log 和 prompts.md
-    
-    Args:
-        scenario_id: 場景ID
-        user_input: 使用者輸入
-        system_prompt: 系統提示詞
-        response: 模型回應
-        strategy: 策略
-        emotion: 情緒值
-        model: 使用的模型（選用）
-        temperature: 溫度參數（選用）
+    記錄輸入輸出資訊到 prompts.md
     """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # 原始 log 格式（保持向後兼容）
-    log_entry = f"""
-[{timestamp}] 場景 {scenario_id}
-{'=' * 80}
-使用者輸入:
-{user_input}
 
-系統提示詞:
-{system_prompt[:500]}{'...' if len(system_prompt) > 500 else ''}
-
-模型回應:
-{response}
-
-元數據:
-  - 策略: {strategy}
-  - 情緒值: {emotion:.3f}
-"""
-    
-    if tone:
-        log_entry += f"  - 語氣: {tone}\n"
-    if defect_mode:
-        log_entry += f"  - 缺陷模式: {defect_mode}\n"
-    if model:
-        log_entry += f"  - 模型: {model}\n"
-    if temperature is not None:
-        log_entry += f"  - 溫度: {temperature}\n"
-    
-    log_entry += "=" * 80 + "\n"
-    
-    try:
-        with open(PROMPT_LOG, "a", encoding="utf-8") as f:
-            f.write(log_entry)
-            f.flush()  # 立即寫入磁碟
-    except Exception as e:
-        print(f"警告：無法寫入提示詞日誌: {e}")
-    
-    # Markdown 格式輸出（現代化風格）
     _write_markdown_log(
         scenario_id=scenario_id,
         timestamp=timestamp,
@@ -157,7 +105,11 @@ def log_prompt(
         strategy=strategy,
         emotion=emotion,
         model=model,
-        temperature=temperature
+        temperature=temperature,
+        tone=tone,
+        defect_mode=defect_mode,
+        ttfb_ms=ttfb_ms,
+        total_ms=total_ms,
     )
 
 
@@ -167,35 +119,12 @@ def log_raw_io(
     output_data: dict,
 ) -> None:
     """
-    記錄原始輸入輸出數據（JSON格式）到 prompts.log 和 prompts.md
-    
-    Args:
-        scenario_id: 場景ID
-        input_data: 輸入數據字典
-        output_data: 輸出數據字典
+    記錄原始輸入輸出數據（JSON格式）到 prompts.md
     """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    import json
-    
-    log_entry = f"""
-[{timestamp}] 場景 {scenario_id} - 原始數據
-輸入:
-{json.dumps(input_data, ensure_ascii=False, indent=2)}
 
-輸出:
-{json.dumps(output_data, ensure_ascii=False, indent=2)}
-{'=' * 80}
-"""
-    
-    try:
-        with open(PROMPT_LOG, "a", encoding="utf-8") as f:
-            f.write(log_entry)
-            f.flush()  # 立即寫入磁碟
-    except Exception as e:
-        print(f"警告：無法寫入原始數據日誌: {e}")
-    
-    # Markdown 格式
+    import json
+
     md_entry = f"""
 ## 📊 場景 {scenario_id} - 原始數據
 
@@ -213,7 +142,7 @@ def log_raw_io(
 
 ---
 """
-    
+
     try:
         with open(PROMPT_MD, "a", encoding="utf-8") as f:
             f.write(md_entry)
@@ -232,6 +161,10 @@ def _write_markdown_log(
     emotion: float,
     model: Optional[str] = None,
     temperature: Optional[float] = None,
+    tone: Optional[str] = None,
+    defect_mode: Optional[str] = None,
+    ttfb_ms: Optional[float] = None,
+    total_ms: Optional[float] = None,
 ) -> None:
     """
     將日誌以現代化 Markdown 格式寫入 prompts.md
@@ -270,6 +203,14 @@ def _write_markdown_log(
         md_entry += f"| 🤖 模型 | `{model}` |\n"
     if temperature is not None:
         md_entry += f"| 🌡️ 溫度 | {temperature} |\n"
+    if tone:
+        md_entry += f"| 🗣️ 語氣 | {tone} |\n"
+    if defect_mode:
+        md_entry += f"| 🎭 缺陷模式 | {defect_mode} |\n"
+    if ttfb_ms is not None:
+        md_entry += f"| ⏱️ 首字延遲 | {ttfb_ms:.0f}ms |\n"
+    if total_ms is not None:
+        md_entry += f"| ⏱️ 總耗時 | {total_ms:.0f}ms |\n"
     
     md_entry += "\n### ⚙️ 系統提示詞\n<details>\n<summary>點擊展開/收起系統提示詞</summary>\n\n```\n"
     md_entry += system_prompt[:1000]

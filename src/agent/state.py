@@ -105,6 +105,8 @@ class AgentState(TypedDict, total=False):
     reasoning_model: bool
     fallback_used: bool
     response_length: ResponseLength
+    ttfb_ms: float
+    total_ms: float
 
 
 def initial_state(config: AgentConfig) -> AgentState:

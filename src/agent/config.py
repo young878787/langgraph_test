@@ -148,6 +148,18 @@ class AgentConfig:
     verbose_temperature: float = field(
         default_factory=lambda: float(os.getenv("VERBOSE_TEMPERATURE", "0.92"))
     )
+    judge_max_output_tokens: int = field(
+        default_factory=lambda: int(os.getenv("JUDGE_MAX_OUTPUT_TOKENS", "150"))
+    )
+    short_max_tokens: int = field(
+        default_factory=lambda: int(os.getenv("SHORT_MAX_TOKENS", "120"))
+    )
+    medium_max_tokens: int = field(
+        default_factory=lambda: int(os.getenv("MEDIUM_MAX_TOKENS", "250"))
+    )
+    long_max_tokens: int = field(
+        default_factory=lambda: int(os.getenv("LONG_MAX_TOKENS", "450"))
+    )
     reasoning_model: bool = field(
         default_factory=lambda: os.getenv("REASONING_MODEL", "").lower() in ("1", "true", "yes")
     )

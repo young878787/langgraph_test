@@ -36,10 +36,10 @@ def _run_smart_fallback(state: AgentState, config: AgentConfig) -> AgentState:
     }
 
 
-def _safe_llm_call(provider, system_prompt, user_prompt, temperature) -> str | None:
+def _safe_llm_call(provider, system_prompt, user_prompt, temperature, max_output_tokens=None) -> str | None:
     global _LLM_JUDGE_FAILURE_REPORTED
     try:
-        return provider.generate(system_prompt, user_prompt, temperature)
+        return provider.generate(system_prompt, user_prompt, temperature, max_output_tokens)
     except Exception as e:
         if not _LLM_JUDGE_FAILURE_REPORTED:
             _LLM_JUDGE_FAILURE_REPORTED = True
@@ -53,10 +53,10 @@ def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
     system_prompt, user_prompt = build_judge_prompts(state)
     provider = get_provider(config)
 
-    response = _safe_llm_call(provider, system_prompt, user_prompt, config.temperature)
+    response = _safe_llm_call(provider, system_prompt, user_prompt, config.temperature, config.judge_max_output_tokens)
     decision = parse_judge_output(response or "")
     if decision is None:
-        response = _safe_llm_call(provider, system_prompt, user_prompt, config.retry_temperature)
+        response = _safe_llm_call(provider, system_prompt, user_prompt, config.retry_temperature, config.judge_max_output_tokens)
         decision = parse_judge_output(response or "")
 
     if decision is None:

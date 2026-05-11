@@ -165,7 +165,6 @@ def sample_vocab_palette(emotion: float = 0.0) -> str:
     opener = _pick(zone["openers"], f"{zone_key}_opener")
     pet = _pick(zone["pet_names"], f"{zone_key}_pet")
     ender = _pick(zone["enders"], f"{zone_key}_ender")
-    cue = _pick(zone["body_lang"], f"{zone_key}_cue")
     catch = _pick(zone["catchphrases"], f"{zone_key}_catch")
 
     parts = [
@@ -173,7 +172,6 @@ def sample_vocab_palette(emotion: float = 0.0) -> str:
         f"開頭語氣詞可選：『{opener}』",
         f"傲嬌稱呼可選：『{pet}』",
         f"結尾語氣詞可選：『{ender}』",
-        f"可插入身體語言：{cue}（約{int(zone['body_lang_freq'] * 100)}%機率出現）",
         f"口頭禪方向參考：『{catch}』",
         "以上皆為參考方向，請用你自己的話自由變化，不要照抄。",
     ]

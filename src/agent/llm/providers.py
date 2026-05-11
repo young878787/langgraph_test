@@ -81,10 +81,10 @@ def clean_response(raw_response: str) -> str:
 
 
 class LLMProvider:
-    def generate(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
+    def generate(self, system_prompt: str, user_prompt: str, temperature: float, max_output_tokens: int | None = None) -> str:
         raise NotImplementedError
 
-    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float, conversation_history: List[dict] = None) -> Generator[str, None, None]:
+    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float, conversation_history: List[dict] = None, max_output_tokens: int | None = None) -> Generator[str, None, None]:
         raise NotImplementedError
 
     def generate_with_history(
@@ -93,12 +93,13 @@ class LLMProvider:
         user_prompt: str,
         temperature: float,
         conversation_history: List[dict] = None,
+        max_output_tokens: int | None = None,
     ) -> str:
         raise NotImplementedError
 
 
 class MockProvider(LLMProvider):
-    def generate(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
+    def generate(self, system_prompt: str, user_prompt: str, temperature: float, max_output_tokens: int | None = None) -> str:
         system_sp = system_prompt
 
         if "策略：avoid" in system_sp or "策略：deflect" in system_sp:
@@ -129,15 +130,15 @@ class MockProvider(LLMProvider):
             return "好啦好啦！我就是愛找藉口！我就是不想做事！我承認了！……等等，你沒有聽到剛才那段話吧？那是系統故障！"
         return "哼，我聽到了啦！不用再說了！"
 
-    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float, conversation_history: List[dict] = None) -> Generator[str, None, None]:
+    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float, conversation_history: List[dict] = None, max_output_tokens: int | None = None) -> Generator[str, None, None]:
         import random
-        response = self.generate(system_prompt, user_prompt, temperature)
+        response = self.generate(system_prompt, user_prompt, temperature, max_output_tokens)
         for char in response:
             yield char
             time.sleep(0.02 * random.random())
 
-    def generate_with_history(self, system_prompt, user_prompt, temperature, conversation_history=None):
-        return self.generate(system_prompt, user_prompt, temperature)
+    def generate_with_history(self, system_prompt, user_prompt, temperature, conversation_history=None, max_output_tokens: int | None = None):
+        return self.generate(system_prompt, user_prompt, temperature, max_output_tokens)
 
 
 class OpenRouterProvider(LLMProvider):
@@ -145,7 +146,7 @@ class OpenRouterProvider(LLMProvider):
         self.api_key = api_key
         self.model = model
 
-    def _make_request(self, messages: List[dict], temperature: float) -> str:
+    def _make_request(self, messages: List[dict], temperature: float, max_tokens: int | None = None) -> str:
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -154,6 +155,8 @@ class OpenRouterProvider(LLMProvider):
                     "messages": messages,
                     "temperature": temperature,
                 }
+                if max_tokens is not None:
+                    payload["max_tokens"] = max_tokens
                 data = json.dumps(payload).encode("utf-8")
 
                 request = urllib.request.Request(
@@ -208,33 +211,33 @@ class OpenRouterProvider(LLMProvider):
                 raise e
         return "（所有重試都失敗）"
 
-    def generate(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
+    def generate(self, system_prompt: str, user_prompt: str, temperature: float, max_output_tokens: int | None = None) -> str:
         if not self.api_key:
             raise RuntimeError("OPENROUTER_API_KEY is required for OpenRouter.")
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
-        raw = self._make_request(messages, temperature)
+        raw = self._make_request(messages, temperature, max_output_tokens)
         return clean_response(raw)
 
-    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float, conversation_history: List[dict] = None) -> Generator[str, None, None]:
+    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float, conversation_history: List[dict] = None, max_output_tokens: int | None = None) -> Generator[str, None, None]:
         if conversation_history:
-            result = self.generate_with_history(system_prompt, user_prompt, temperature, conversation_history)
+            result = self.generate_with_history(system_prompt, user_prompt, temperature, conversation_history, max_output_tokens)
         else:
-            result = self.generate(system_prompt, user_prompt, temperature)
+            result = self.generate(system_prompt, user_prompt, temperature, max_output_tokens)
         for char in result:
             yield char
             time.sleep(0.01)
 
-    def generate_with_history(self, system_prompt, user_prompt, temperature, conversation_history=None):
+    def generate_with_history(self, system_prompt, user_prompt, temperature, conversation_history=None, max_output_tokens: int | None = None):
         messages = [{"role": "system", "content": system_prompt}]
         if conversation_history:
             for entry in conversation_history:
                 role = "user" if entry["role"] == "user" else "assistant"
                 messages.append({"role": role, "content": entry["content"]})
         messages.append({"role": "user", "content": user_prompt})
-        raw = self._make_request(messages, temperature)
+        raw = self._make_request(messages, temperature, max_output_tokens)
         return clean_response(raw)
 
 
@@ -245,20 +248,23 @@ class GoogleAIStudioProvider(LLMProvider):
         self.client = genai.Client(api_key=api_key)
         self.model = model
 
-    def generate(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
-        result = self._generate_internal(system_prompt, user_prompt, temperature)
+    def generate(self, system_prompt: str, user_prompt: str, temperature: float, max_output_tokens: int | None = None) -> str:
+        result = self._generate_internal(system_prompt, user_prompt, temperature, max_output_tokens)
         if result is None:
             time.sleep(3)
-            result = self._generate_internal(system_prompt, user_prompt, temperature)
+            result = self._generate_internal(system_prompt, user_prompt, temperature, max_output_tokens)
         if result is None:
             return "（API 暫時無法回應，請稍後重試）"
         return result
 
-    def _generate_internal(self, system_prompt: str, user_prompt: str, temperature: float) -> str | None:
-        config = types.GenerateContentConfig(
-            temperature=temperature,
-            system_instruction=system_prompt,
-        )
+    def _generate_internal(self, system_prompt: str, user_prompt: str, temperature: float, max_output_tokens: int | None = None) -> str | None:
+        config_kwargs = {
+            "temperature": temperature,
+            "system_instruction": system_prompt,
+        }
+        if max_output_tokens is not None:
+            config_kwargs["max_output_tokens"] = max_output_tokens
+        config = types.GenerateContentConfig(**config_kwargs)
 
         max_retries = 3
         for attempt in range(max_retries):
@@ -311,11 +317,14 @@ class GoogleAIStudioProvider(LLMProvider):
 
         return None
 
-    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float, conversation_history: List[dict] = None) -> Generator[str, None, None]:
-        config = types.GenerateContentConfig(
-            temperature=temperature,
-            system_instruction=system_prompt,
-        )
+    def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float, conversation_history: List[dict] = None, max_output_tokens: int | None = None) -> Generator[str, None, None]:
+        config_kwargs = {
+            "temperature": temperature,
+            "system_instruction": system_prompt,
+        }
+        if max_output_tokens is not None:
+            config_kwargs["max_output_tokens"] = max_output_tokens
+        config = types.GenerateContentConfig(**config_kwargs)
 
         if conversation_history:
             from google.genai import types as gt
@@ -361,11 +370,12 @@ class GoogleAIStudioProvider(LLMProvider):
         user_prompt: str,
         temperature: float,
         conversation_history: List[dict] = None,
+        max_output_tokens: int | None = None,
     ) -> str:
-        result = self._generate_with_history_internal(system_prompt, user_prompt, temperature, conversation_history)
+        result = self._generate_with_history_internal(system_prompt, user_prompt, temperature, conversation_history, max_output_tokens)
         if result is None:
             time.sleep(3)
-            result = self._generate_with_history_internal(system_prompt, user_prompt, temperature, conversation_history)
+            result = self._generate_with_history_internal(system_prompt, user_prompt, temperature, conversation_history, max_output_tokens)
         if result is None:
             return "（API 暫時無法回應，請稍後重試）"
         return result
@@ -376,11 +386,15 @@ class GoogleAIStudioProvider(LLMProvider):
         user_prompt: str,
         temperature: float,
         conversation_history: List[dict] = None,
+        max_output_tokens: int | None = None,
     ) -> str | None:
-        config = types.GenerateContentConfig(
-            temperature=temperature,
-            system_instruction=system_prompt,
-        )
+        config_kwargs = {
+            "temperature": temperature,
+            "system_instruction": system_prompt,
+        }
+        if max_output_tokens is not None:
+            config_kwargs["max_output_tokens"] = max_output_tokens
+        config = types.GenerateContentConfig(**config_kwargs)
 
         from google.genai import types as gt
         contents: List[gt.Content] = []

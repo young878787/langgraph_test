@@ -3,6 +3,7 @@ import sys
 import io
 import os
 import random
+import time
 from pathlib import Path
 
 if sys.stdout.encoding != 'utf-8':
@@ -187,6 +188,8 @@ def continuous_validation():
                 defect_mode=strategy, emotion=curr_emotion,
                 model=config.google_model if config.backend == "google" else config.openrouter_model,
                 temperature=config.temperature,
+                ttfb_ms=state.get("ttfb_ms"),
+                total_ms=state.get("total_ms"),
             )
         except Exception as e:
             log_error(module="main", function="continuous_validation", error=e,
@@ -251,6 +254,8 @@ def interactive_chat():
             if config.streaming_enabled and config.backend in ("google", "google_ai_studio", "gemini"):
                 from agent.llm.providers import get_provider
                 from agent.llm.prompting import build_prompts
+                from agent.nodes.writeback import writeback
+                from agent.llm.validators import is_on_strategy, fallback_response
 
                 state = graph.invoke(state)
 
@@ -258,24 +263,53 @@ def interactive_chat():
                 provider = get_provider(config)
                 conv_hist = state.get("conversation_history", [])
 
+                response_length = state.get("response_length", "medium")
+                if response_length == "long":
+                    max_output_tokens = config.long_max_tokens
+                elif response_length == "short":
+                    max_output_tokens = config.short_max_tokens
+                else:
+                    max_output_tokens = config.medium_max_tokens
+
                 print(f"\n⏳ AI 思考中...  ", end="", flush=True)
                 full_response = ""
+                t_start = time.perf_counter()
+                ttfb_ms = None
                 try:
-                    for chunk in provider.generate_stream(system_prompt, user_prompt, config.temperature, conv_hist):
+                    for chunk in provider.generate_stream(system_prompt, user_prompt, config.temperature, conv_hist, max_output_tokens):
                         if full_response == "":
+                            ttfb_ms = (time.perf_counter() - t_start) * 1000
                             print(f"\r🤖 AI: ", end="", flush=True)
                         print(chunk, end="", flush=True)
                         full_response += chunk
                 except Exception as e:
-                    print(f"\n❌ 串流失敗: {e}")
-                    full_response = provider.generate(system_prompt, user_prompt, config.temperature)
-                    print(full_response)
+                    full_response = provider.generate(system_prompt, user_prompt, config.temperature, max_output_tokens)
+                    if full_response:
+                        print(f"\r🤖 AI: {full_response}")
+                    else:
+                        print(f"\n❌ 串流失敗: {e}")
+
+                total_ms = (time.perf_counter() - t_start) * 1000
+                state["ttfb_ms"] = ttfb_ms
+                state["total_ms"] = total_ms
+
+                from agent.llm.providers import clean_response
+                full_response = clean_response(full_response)
+
+                response_length = state.get("response_length", "medium")
+                min_len = {"short": 1, "medium": 3, "long": 10}.get(response_length, 3)
+                if not full_response or len(full_response.strip()) < min_len:
+                    full_response = fallback_response(state)
+                    state["fallback_used"] = True
+                elif not is_on_strategy(state, full_response, config):
+                    full_response = fallback_response(state)
+                    state["fallback_used"] = True
 
                 print()
                 state["response"] = full_response
                 state["system_prompt"] = system_prompt
 
-                state = graph.invoke(state)
+                state.update(writeback(state))
             else:
                 state = graph.invoke(state)
                 response = state.get("response", "")
@@ -292,10 +326,12 @@ def interactive_chat():
                     emotion=state.get("emotion", 0.0),
                     model=config.google_model if config.backend == "google" else config.openrouter_model,
                     temperature=config.temperature,
+                    ttfb_ms=state.get("ttfb_ms"),
+                    total_ms=state.get("total_ms"),
                 )
             except Exception as e:
                 log_error(module="main", function="interactive_chat", error=e,
-                          context={"chat": chat_counter, "reason": "log_prompt_failed"})
+                           context={"chat": chat_counter, "reason": "log_prompt_failed"})
 
             print(f"  🎭 {_fmt_emotion_bar(state.get('emotion', 0.0))}")
             if state.get("fallback_used", False):
@@ -372,6 +408,8 @@ def continuous_chat_mode():
             if config.streaming_enabled and config.backend in ("google", "google_ai_studio", "gemini"):
                 from agent.llm.providers import get_provider
                 from agent.llm.prompting import build_prompts
+                from agent.nodes.writeback import writeback
+                from agent.llm.validators import is_on_strategy, fallback_response
 
                 state = graph.invoke(state)
 
@@ -379,27 +417,55 @@ def continuous_chat_mode():
                 provider = get_provider(config)
                 conv_hist = state.get("conversation_history", [])
 
+                response_length = state.get("response_length", "medium")
+                if response_length == "long":
+                    max_output_tokens = config.long_max_tokens
+                elif response_length == "short":
+                    max_output_tokens = config.short_max_tokens
+                else:
+                    max_output_tokens = config.medium_max_tokens
+
                 print(f"\n⏳ AI 思考中...  ", end="", flush=True)
                 full_response = ""
+                t_start = time.perf_counter()
+                ttfb_ms = None
                 try:
-                    for chunk in provider.generate_stream(system_prompt, user_prompt, config.temperature, conv_hist):
+                    for chunk in provider.generate_stream(system_prompt, user_prompt, config.temperature, conv_hist, max_output_tokens):
                         if full_response == "":
+                            ttfb_ms = (time.perf_counter() - t_start) * 1000
                             print(f"\r🤖 AI: ", end="", flush=True)
                         print(chunk, end="", flush=True)
                         full_response += chunk
                 except Exception as e:
                     full_response = provider.generate_with_history(
-                        system_prompt, user_prompt, config.temperature, conv_hist
+                        system_prompt, user_prompt, config.temperature, conv_hist, max_output_tokens
                     )
                     if not full_response:
-                        full_response = provider.generate(system_prompt, user_prompt, config.temperature)
-                    print(f"\r🤖 AI: {full_response}")
+                        full_response = provider.generate(system_prompt, user_prompt, config.temperature, max_output_tokens)
+                    if full_response:
+                        print(f"\r🤖 AI: {full_response}")
+
+                total_ms = (time.perf_counter() - t_start) * 1000
+                state["ttfb_ms"] = ttfb_ms
+                state["total_ms"] = total_ms
+
+                from agent.llm.providers import clean_response
+                full_response = clean_response(full_response)
+
+                response_length = state.get("response_length", "medium")
+                min_len = {"short": 1, "medium": 3, "long": 10}.get(response_length, 3)
+                if not full_response or len(full_response.strip()) < min_len:
+                    full_response = fallback_response(state)
+                    state["fallback_used"] = True
+                elif not is_on_strategy(state, full_response, config):
+                    full_response = fallback_response(state)
+                    state["fallback_used"] = True
 
                 print()
                 state["response"] = full_response
                 state["system_prompt"] = system_prompt
 
-                state = graph.invoke(state)
+                state.update(writeback(state))
             else:
                 state = graph.invoke(state)
                 response = state.get("response", "")
@@ -422,10 +488,12 @@ def continuous_chat_mode():
                     emotion=curr_emotion,
                     model=config.google_model if config.backend == "google" else config.openrouter_model,
                     temperature=config.temperature,
+                    ttfb_ms=state.get("ttfb_ms"),
+                    total_ms=state.get("total_ms"),
                 )
             except Exception as e:
                 log_error(module="main", function="continuous_chat_mode", error=e,
-                          context={"turn": turn_number, "reason": "log_prompt_failed"})
+                           context={"turn": turn_number, "reason": "log_prompt_failed"})
 
             print(f"  🎭 {_fmt_emotion_bar(curr_emotion)} | "
                   f"{_fmt_defect_emoji(strategy)} | "
@@ -456,7 +524,7 @@ def continuous_chat_mode():
 
 def main():
     init_logs()
-    print("📝 日誌系統已初始化 (logs/error.log, logs/prompts.log)")
+    print("📝 日誌系統已初始化 (logs/error.log, logs/prompts.md)")
 
     config = AgentConfig()
     if config.backend == "openrouter":
