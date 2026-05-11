@@ -146,6 +146,16 @@ class MockProvider(LLMProvider):
     def generate_with_history(self, system_prompt, user_prompt, temperature, conversation_history=None, max_output_tokens: int | None = None):
         return self.generate(system_prompt, user_prompt, temperature, max_output_tokens)
 
+    def summarize(self, prompt: str, max_tokens: int = 300) -> str | None:
+        """使用記憶模型摘要對話（Mock 回傳固定摘要）。"""
+        import time
+        time.sleep(0.3)  # 模擬延遲
+        # 提取 prompt 中的關鍵資訊做簡單摘要
+        lines = prompt.split("\n")
+        user_msgs = [l for l in lines if l.startswith("使用者:")]
+        topic = user_msgs[-1][:50] if user_msgs else "一般對話"
+        return f"（記憶摘要）使用者進行了關於「{topic}」的對話。"
+
 
 class OpenRouterProvider(LLMProvider):
     def __init__(self, api_key: str, model: str) -> None:
@@ -257,6 +267,29 @@ class OpenRouterProvider(LLMProvider):
         messages.append({"role": "user", "content": user_prompt})
         raw = self._make_request(messages, temperature, max_output_tokens)
         return clean_response(raw)
+
+    def summarize(self, prompt: str, max_tokens: int = 300) -> str | None:
+        """使用記憶模型摘要對話。若 MEMORY_MODEL 未設定則 fallback 到主模型。"""
+        model = self.config.memory_model or self.openrouter_model
+        try:
+            response = requests.post(
+                self.url,
+                headers=self.headers,
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                    "max_tokens": max_tokens,
+                },
+                timeout=30,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if "choices" in data and data["choices"]:
+                    return data["choices"][0]["message"]["content"].strip()
+        except Exception:
+            pass
+        return None
 
 
 class GoogleAIStudioProvider(LLMProvider):
@@ -454,6 +487,25 @@ class GoogleAIStudioProvider(LLMProvider):
         if result is None:
             return "（API 暫時無法回應，請稍後重試）"
         return result
+
+    def summarize(self, prompt: str, max_tokens: int = 300) -> str | None:
+        """使用記憶模型摘要對話。若 MEMORY_MODEL 未設定則 fallback 到主模型。"""
+        model = self.config.memory_model or self.model
+        try:
+            from google.genai import types as gt
+            response = self.client.models.generate_content(
+                model=model,
+                contents=[gt.Content(role="user", parts=[gt.Part(text=prompt)])],
+                config={
+                    "temperature": 0.3,
+                    "max_output_tokens": max_tokens,
+                },
+            )
+            if response and response.text:
+                return response.text.strip()
+        except Exception:
+            pass
+        return None
 
     def _generate_with_history_internal(
         self,

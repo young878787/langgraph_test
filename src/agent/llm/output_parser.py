@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 
 
-def smart_truncate(text: str, max_chars: int) -> str:
+def smart_truncate(text: str, max_tokens: int) -> str:
     """
     智能截斷：在完整句子邊界處截斷，避免斷句。
 
@@ -17,30 +17,27 @@ def smart_truncate(text: str, max_chars: int) -> str:
 
     Args:
         text: 待截斷的文字
-        max_chars: 目標最大字元數
+        max_tokens: 目標最大 token 數（作為字元上限，中文環境 1 token≈1~2 字元）
 
     Returns:
         截斷後、以完整句子結尾的字串
     """
-    if not text or len(text) <= max_chars:
+    if not text or len(text) <= max_tokens:
         return text
 
-    # 第一步：找最後一個句末標點
     sentence_end = re.compile(r'[。！？!?…~～]+')
     boundaries = [(m.end(), m.group()) for m in sentence_end.finditer(text)]
     for end, _ in reversed(boundaries):
-        if end <= max_chars:
+        if end <= max_tokens:
             return text[:end].rstrip()
 
-    # 第二步：退而求其次，找最後一個停頓標點
     pause = re.compile(r'[，,、；;：:）\)】」』》〉]')
     boundaries2 = [(m.end(), m.group()) for m in pause.finditer(text)]
     for end, _ in reversed(boundaries2):
-        if end <= max_chars:
+        if end <= max_tokens:
             return text[:end].rstrip()
 
-    # 第三步：fallback 硬截斷（理論上不應走到）
-    return text[:max_chars].rstrip()
+    return text[:max_tokens].rstrip()
 
 
 def clean_response(raw_response: str, state: dict | None = None) -> str:

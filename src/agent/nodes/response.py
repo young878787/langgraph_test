@@ -48,25 +48,32 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
     if response_length == "long":
         temperature = config.verbose_temperature
         max_output_tokens = config.long_max_tokens
-        target_chars = config.long_target_chars
+    elif response_length == "long_long":
+        temperature = config.verbose_temperature
+        max_output_tokens = config.long_long_max_tokens
     elif response_length == "short":
         temperature = 0.75
         max_output_tokens = config.short_max_tokens
-        target_chars = config.short_target_chars
     else:
         temperature = config.temperature
         max_output_tokens = config.medium_max_tokens
-        target_chars = config.medium_target_chars
 
+    min_len = {"short": 2, "medium": 5, "long": 20, "long_long": 30}.get(response_length, 5)
     if memory_enabled and conversation_history:
-        response = _safe_call_with_history(provider, system_prompt, user_prompt, temperature, conversation_history, max_output_tokens)
+        response = _safe_call_with_history(
+            provider,
+            system_prompt,
+            user_prompt,
+            temperature,
+            conversation_history,
+            max_output_tokens,
+        )
     else:
         response = _safe_call(provider, system_prompt, user_prompt, temperature, max_output_tokens)
 
     if response:
-        response = smart_truncate(response, target_chars)
+        response = smart_truncate(response, max_output_tokens)
 
-    min_len = {"short": 2, "medium": 5, "long": 20}.get(response_length, 5)
     if not response or len(response.strip()) < min_len:
         response = fallback_response(state)
         fallback_used = True
@@ -76,7 +83,7 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
         else:
             response = _safe_call(provider, system_prompt, user_prompt, config.retry_temperature, max_output_tokens)
         if response:
-            response = smart_truncate(response, target_chars)
+            response = smart_truncate(response, max_output_tokens)
         if not response or len(response.strip()) < min_len:
             response = fallback_response(state)
             fallback_used = True

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from agent.llm.output_parser import smart_truncate
 from agent.state import AgentState
 
 VALID_CATEGORIES = (
@@ -45,7 +46,7 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
         history_lines = []
         for entry in recent:
             role = "使用者" if entry["role"] == "user" else "AI(傲嬌)"
-            history_lines.append(f"[{role}]: {entry['content'][:60]}")
+            history_lines.append(f"[{role}]: {smart_truncate(entry['content'], 80)}")
         history_context = "\n".join(history_lines)
 
     cats = ", ".join(VALID_CATEGORIES)

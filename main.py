@@ -273,13 +273,12 @@ def interactive_chat():
                 response_length = state.get("response_length", "medium")
                 if response_length == "long":
                     max_output_tokens = config.long_max_tokens
-                    target_chars = config.long_target_chars
+                elif response_length == "long_long":
+                    max_output_tokens = config.long_long_max_tokens
                 elif response_length == "short":
                     max_output_tokens = config.short_max_tokens
-                    target_chars = config.short_target_chars
                 else:
                     max_output_tokens = config.medium_max_tokens
-                    target_chars = config.medium_target_chars
 
                 print(f"\n⏳ AI 思考中...  ", end="", flush=True)
                 full_response = ""
@@ -307,10 +306,10 @@ def interactive_chat():
                 from agent.llm.providers import clean_response
                 full_response = clean_response(full_response)
                 if full_response:
-                    full_response = smart_truncate(full_response, target_chars)
+                    full_response = smart_truncate(full_response, max_output_tokens)
 
                 response_length = state.get("response_length", "medium")
-                min_len = {"short": 1, "medium": 3, "long": 10}.get(response_length, 3)
+                min_len = {"short": 1, "medium": 3, "long": 10, "long_long": 20}.get(response_length, 3)
                 if not full_response or len(full_response.strip()) < min_len:
                     full_response = fallback_response(state)
                     state["fallback_used"] = True
@@ -440,13 +439,12 @@ def continuous_chat_mode():
                 response_length = state.get("response_length", "medium")
                 if response_length == "long":
                     max_output_tokens = config.long_max_tokens
-                    target_chars = config.long_target_chars
+                elif response_length == "long_long":
+                    max_output_tokens = config.long_long_max_tokens
                 elif response_length == "short":
                     max_output_tokens = config.short_max_tokens
-                    target_chars = config.short_target_chars
                 else:
                     max_output_tokens = config.medium_max_tokens
-                    target_chars = config.medium_target_chars
 
                 print(f"\n⏳ AI 思考中...  ", end="", flush=True)
                 full_response = ""
@@ -476,10 +474,10 @@ def continuous_chat_mode():
                 from agent.llm.providers import clean_response
                 full_response = clean_response(full_response)
                 if full_response:
-                    full_response = smart_truncate(full_response, target_chars)
+                    full_response = smart_truncate(full_response, max_output_tokens)
 
                 response_length = state.get("response_length", "medium")
-                min_len = {"short": 1, "medium": 3, "long": 10}.get(response_length, 3)
+                min_len = {"short": 1, "medium": 3, "long": 10, "long_long": 20}.get(response_length, 3)
                 if not full_response or len(full_response.strip()) < min_len:
                     full_response = fallback_response(state)
                     state["fallback_used"] = True

@@ -102,6 +102,8 @@ class AgentState(TypedDict, total=False):
     emotion_jitter: float
     burst_pending: bool
     conversation_history: List[Dict[str, str]]
+    long_term_memory: str
+    pending_summary: dict
     turn_count: int
     memory_enabled: bool
     mode: str
@@ -129,6 +131,8 @@ def initial_state(config: AgentConfig) -> AgentState:
         "emotion_jitter": config.emotion_jitter,
         "burst_pending": False,
         "conversation_history": [],
+        "long_term_memory": "",
+        "pending_summary": {},
         "turn_count": 0,
         "memory_enabled": config.memory_enabled,
         "mode": "single",

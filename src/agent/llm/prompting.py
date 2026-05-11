@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import List
+
+from agent.llm.output_parser import smart_truncate
 from agent.state import AgentState, STRATEGY_LABELS, STRATEGY_DESCRIPTIONS
 from agent.llm.vocab import sample_vocab_palette, sample_tone_tweak
 
@@ -36,11 +38,13 @@ def build_prompts(state: AgentState) -> tuple[str, str]:
 
     response_length = state.get("response_length", "medium")
     if response_length == "short":
-        system_lines.append("嚴格1-2句，一句話打死不解釋。短而有力。")
+        system_lines.append("【字數上限】1-2句。每句≤20字。像傳訊息秒回，一句打死不廢話。")
     elif response_length == "long":
-        system_lines.append("≤4句，可補充細節但勿囉嗦，核心回答到問題。")
+        system_lines.append("【字數上限】4-6句。每句≤15字。句句乾淨不灌水。")
+    elif response_length == "long_long":
+        system_lines.append("【字數上限】6-8句。每句≤15字。可鋪陳但句句有事。")
     else:
-        system_lines.append("≤3句，短而有力，像真人講話不廢話、不鋪陳。")
+        system_lines.append("【字數上限】2-3句。每句≤15字。像傳訊息般直接，能一句絕不拆兩句。")
 
     system_lines.extend([
         "直接輸出最終回應，禁止思考過程、Markdown 列表、*動作描述*。",
@@ -52,7 +56,22 @@ def build_prompts(state: AgentState) -> tuple[str, str]:
         system_lines.append("禁止使用 <think> 標籤。")
 
     if memory_enabled and summary:
-        system_lines.append(f"對話記憶摘要：{summary}")
+        system_lines.append(f"狀態摘要：{summary}")
+
+    long_term = state.get("long_term_memory", "")
+    if memory_enabled and long_term:
+        system_lines.append(f"長期記憶：{long_term}")
+
+    if memory_enabled:
+        conversation_history = state.get("conversation_history", [])
+        if conversation_history:
+            lines = ["【最近對話】"]
+            for entry in conversation_history[-6:]:
+                role = "使用者" if entry["role"] == "user" else "傲嬌AI"
+                truncated = smart_truncate(entry["content"], 80)
+                lines.append(f"{role}: {truncated}")
+            lines.append("---")
+            system_lines.append("\n".join(lines))
 
     system_prompt = "\n".join(system_lines)
     user_prompt = state.get("user_input", "")
@@ -65,9 +84,10 @@ def build_memory_context(state: AgentState) -> str:
         return ""
 
     lines = ["【先前對話歷史】"]
-    for entry in conversation_history[-20:]:
+    for entry in conversation_history[-8:]:
         role = "使用者" if entry["role"] == "user" else "傲嬌AI"
-        lines.append(f"{role}: {entry['content']}")
+        truncated = smart_truncate(entry["content"], 120)
+        lines.append(f"{role}: {truncated}")
     lines.append("---")
     return "\n".join(lines)
 

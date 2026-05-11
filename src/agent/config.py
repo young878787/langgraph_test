@@ -142,11 +142,20 @@ class AgentConfig:
     memory_enabled: bool = True
     max_history_turns: int = 10
     summary_interval: int = 5
+    memory_model: str = field(
+        default_factory=lambda: os.getenv("MEMORY_MODEL", "")
+    )
+    memory_summary_threshold: int = field(
+        default_factory=lambda: int(os.getenv("MEMORY_SUMMARY_THRESHOLD", "30"))
+    )
     short_chance: float = field(
         default_factory=lambda: float(os.getenv("SHORT_CHANCE", "0.45"))
     )
     long_chance: float = field(
         default_factory=lambda: float(os.getenv("LONG_CHANCE", "0.05"))
+    )
+    long_long_chance: float = field(
+        default_factory=lambda: float(os.getenv("LONG_LONG_CHANCE", "0.0"))
     )
     verbose_temperature: float = field(
         default_factory=lambda: float(os.getenv("VERBOSE_TEMPERATURE", "0.92"))
@@ -155,22 +164,16 @@ class AgentConfig:
         default_factory=lambda: int(os.getenv("JUDGE_MAX_OUTPUT_TOKENS", "150"))
     )
     short_max_tokens: int = field(
-        default_factory=lambda: int(os.getenv("SHORT_MAX_TOKENS", "200"))
+        default_factory=lambda: int(os.getenv("SHORT_MAX_TOKENS", "50"))
     )
     medium_max_tokens: int = field(
-        default_factory=lambda: int(os.getenv("MEDIUM_MAX_TOKENS", "350"))
+        default_factory=lambda: int(os.getenv("MEDIUM_MAX_TOKENS", "90"))
     )
     long_max_tokens: int = field(
-        default_factory=lambda: int(os.getenv("LONG_MAX_TOKENS", "600"))
+        default_factory=lambda: int(os.getenv("LONG_MAX_TOKENS", "150"))
     )
-    short_target_chars: int = field(
-        default_factory=lambda: int(os.getenv("SHORT_TARGET_CHARS", "60"))
-    )
-    medium_target_chars: int = field(
-        default_factory=lambda: int(os.getenv("MEDIUM_TARGET_CHARS", "180"))
-    )
-    long_target_chars: int = field(
-        default_factory=lambda: int(os.getenv("LONG_TARGET_CHARS", "420"))
+    long_long_max_tokens: int = field(
+        default_factory=lambda: int(os.getenv("LONG_LONG_MAX_TOKENS", "250"))
     )
     reasoning_model: bool = field(
         default_factory=lambda: os.getenv("REASONING_MODEL", "").lower() in ("1", "true", "yes")
