@@ -117,7 +117,7 @@ class AgentConfig:
             "yandere": 0.4,
             "excuse_prone": 0.75,
             "liar": 0.7,
-            "rambler": 0.6,
+            "rambler": 0.3,
             "contradict_prone": 0.65,
             "overthinker": 0.7,
             "knowitall": 0.55,
@@ -143,10 +143,10 @@ class AgentConfig:
     max_history_turns: int = 10
     summary_interval: int = 5
     short_chance: float = field(
-        default_factory=lambda: float(os.getenv("SHORT_CHANCE", "0.25"))
+        default_factory=lambda: float(os.getenv("SHORT_CHANCE", "0.45"))
     )
     long_chance: float = field(
-        default_factory=lambda: float(os.getenv("LONG_CHANCE", "0.20"))
+        default_factory=lambda: float(os.getenv("LONG_CHANCE", "0.05"))
     )
     verbose_temperature: float = field(
         default_factory=lambda: float(os.getenv("VERBOSE_TEMPERATURE", "0.92"))
@@ -155,13 +155,22 @@ class AgentConfig:
         default_factory=lambda: int(os.getenv("JUDGE_MAX_OUTPUT_TOKENS", "150"))
     )
     short_max_tokens: int = field(
-        default_factory=lambda: int(os.getenv("SHORT_MAX_TOKENS", "120"))
+        default_factory=lambda: int(os.getenv("SHORT_MAX_TOKENS", "200"))
     )
     medium_max_tokens: int = field(
-        default_factory=lambda: int(os.getenv("MEDIUM_MAX_TOKENS", "250"))
+        default_factory=lambda: int(os.getenv("MEDIUM_MAX_TOKENS", "350"))
     )
     long_max_tokens: int = field(
-        default_factory=lambda: int(os.getenv("LONG_MAX_TOKENS", "450"))
+        default_factory=lambda: int(os.getenv("LONG_MAX_TOKENS", "600"))
+    )
+    short_target_chars: int = field(
+        default_factory=lambda: int(os.getenv("SHORT_TARGET_CHARS", "60"))
+    )
+    medium_target_chars: int = field(
+        default_factory=lambda: int(os.getenv("MEDIUM_TARGET_CHARS", "180"))
+    )
+    long_target_chars: int = field(
+        default_factory=lambda: int(os.getenv("LONG_TARGET_CHARS", "420"))
     )
     reasoning_model: bool = field(
         default_factory=lambda: os.getenv("REASONING_MODEL", "").lower() in ("1", "true", "yes")

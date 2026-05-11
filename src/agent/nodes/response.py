@@ -7,6 +7,7 @@ from agent.state import AgentState
 from agent.llm.prompting import build_prompts
 from agent.llm.providers import get_provider
 from agent.llm.validators import is_on_strategy, fallback_response
+from agent.llm.output_parser import smart_truncate
 from agent.logger import log_error
 
 
@@ -47,17 +48,23 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
     if response_length == "long":
         temperature = config.verbose_temperature
         max_output_tokens = config.long_max_tokens
+        target_chars = config.long_target_chars
     elif response_length == "short":
         temperature = 0.75
         max_output_tokens = config.short_max_tokens
+        target_chars = config.short_target_chars
     else:
         temperature = config.temperature
         max_output_tokens = config.medium_max_tokens
+        target_chars = config.medium_target_chars
 
     if memory_enabled and conversation_history:
         response = _safe_call_with_history(provider, system_prompt, user_prompt, temperature, conversation_history, max_output_tokens)
     else:
         response = _safe_call(provider, system_prompt, user_prompt, temperature, max_output_tokens)
+
+    if response:
+        response = smart_truncate(response, target_chars)
 
     min_len = {"short": 2, "medium": 5, "long": 20}.get(response_length, 5)
     if not response or len(response.strip()) < min_len:
@@ -68,6 +75,8 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
             response = _safe_call_with_history(provider, system_prompt, user_prompt, config.retry_temperature, conversation_history, max_output_tokens)
         else:
             response = _safe_call(provider, system_prompt, user_prompt, config.retry_temperature, max_output_tokens)
+        if response:
+            response = smart_truncate(response, target_chars)
         if not response or len(response.strip()) < min_len:
             response = fallback_response(state)
             fallback_used = True

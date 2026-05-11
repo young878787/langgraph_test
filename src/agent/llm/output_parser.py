@@ -7,29 +7,65 @@ from __future__ import annotations
 import re
 
 
+def smart_truncate(text: str, max_chars: int) -> str:
+    """
+    智能截斷：在完整句子邊界處截斷，避免斷句。
+
+    優先在句末標點（。！？!?…~～）處截斷；
+    若無句末標點，則退而求其次在停頓標點（，,、；;：:）處截斷；
+    最終 fallback 為硬截斷（理論上不應走到這步）。
+
+    Args:
+        text: 待截斷的文字
+        max_chars: 目標最大字元數
+
+    Returns:
+        截斷後、以完整句子結尾的字串
+    """
+    if not text or len(text) <= max_chars:
+        return text
+
+    # 第一步：找最後一個句末標點
+    sentence_end = re.compile(r'[。！？!?…~～]+')
+    boundaries = [(m.end(), m.group()) for m in sentence_end.finditer(text)]
+    for end, _ in reversed(boundaries):
+        if end <= max_chars:
+            return text[:end].rstrip()
+
+    # 第二步：退而求其次，找最後一個停頓標點
+    pause = re.compile(r'[，,、；;：:）\)】」』》〉]')
+    boundaries2 = [(m.end(), m.group()) for m in pause.finditer(text)]
+    for end, _ in reversed(boundaries2):
+        if end <= max_chars:
+            return text[:end].rstrip()
+
+    # 第三步：fallback 硬截斷（理論上不應走到）
+    return text[:max_chars].rstrip()
+
+
 def clean_response(raw_response: str, state: dict | None = None) -> str:
     """
     清理模型原始輸出，只保留最終回應。
-    
+
     Args:
         raw_response: 模型的原始輸出文字
         state: 當前狀態（可選），用於根據策略調整清理邏輯
-    
+
     Returns:
         清理後的最終回應字串
     """
     if not raw_response:
         return ""
-    
+
     text = raw_response.strip()
-    
+
     # 1. 移除 <think>...</think> 標籤及其內容（常見於推理模型）
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    
+
     # 2. 移除 Markdown 格式的思考過程（如 *Initial reaction:*、*Draft 1:* 等）
     #    匹配以 * 開頭，後跟 *Label:* 格式的行
     text = re.sub(r'^\s*\*.*?\*.*$', '', text, flags=re.MULTILINE)
-    
+
     # 3. 移除角色設定重述（模型重複 system prompt 的內容）
     #    特徵：以 "Severe personality flaws" 或 "Stubborn, refuses" 等開頭的段落
     personality_patterns = [
@@ -40,24 +76,24 @@ def clean_response(raw_response: str, state: dict | None = None) -> str:
     ]
     for pattern in personality_patterns:
         text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.MULTILINE)
-    
+
     # 4. 移除檢查清單（如 "哼 included? Yes."、"Traditional Chinese? Yes."）
     text = re.sub(r'^\s*\*\s*["\']?\w+["\']?\s*(included|included\?|Yes|No)\s*[:\?]?\s*.*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*["\']\w+["\']\s*(included|Yes|No)\s*[:\?]?\s*.*$', '', text, flags=re.MULTILINE)
-    
+
     # 5. 移除分隔線（如 "---" 或 "----"）
     text = re.sub(r'^\s*[-]{3,}\s*$', '', text, flags=re.MULTILINE)
-    
+
     # 6. 移除 "Draft X:" 或 "Attempt X:" 等標記
     text = re.sub(r'^\s*(Draft|Attempt)\s*\d+\s*[:：].*$', '', text, flags=re.MULTILINE)
-    
+
     # 7. 移除 "Refining for constraints:" 等標記
     text = re.sub(r'^\s*\*?\s*Refining\s+for\s+constraints.*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*\*?\s*Initial\s+reaction.*$', '', text, flags=re.MULTILINE)
-    
+
     # 8. 移除空行和多餘空白
     lines = [line.strip() for line in text.split('\n') if line.strip()]
-    
+
     # 9. 如果還有很多行，嘗試找出最像「最終回應」的部分
     #    策略：找最後幾行中，包含傲嬌關鍵詞（哼、笨蛋、才不是）的句子
     if len(lines) > 3:
@@ -66,25 +102,12 @@ def clean_response(raw_response: str, state: dict | None = None) -> str:
         for i in range(len(lines) - 1, -1, -1):
             if any(kw in lines[i] for kw in tsundere_keywords):
                 # 找到後，取這一行及其後續行（最多3行）
-                lines = lines[i:i+3]
+                lines = lines[i:i + 3]
                 break
-    
-    # 10. 重新組合，確保是 3-4 句以內
+
+    # 10. 重新組合
     result = ' '.join(lines)
-    
-    # 11. 如果結果太長，截斷到適當長度（約 150 字）
-    if len(result) > 200:
-        # 嘗試在句號處截斷
-        sentences = re.split(r'([。！？!?])', result)
-        truncated = ""
-        for i in range(0, len(sentences)-1, 2):
-            sentence = sentences[i] + (sentences[i+1] if i+1 < len(sentences) else '')
-            if len(truncated + sentence) <= 150:
-                truncated += sentence
-            else:
-                break
-        result = truncated if truncated else result[:150]
-    
+
     return result.strip()
 
 

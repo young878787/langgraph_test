@@ -36,11 +36,11 @@ def build_prompts(state: AgentState) -> tuple[str, str]:
 
     response_length = state.get("response_length", "medium")
     if response_length == "short":
-        system_lines.append("嚴格1-2句，不解釋、不補充。短而有力。")
+        system_lines.append("嚴格1-2句，一句話打死不解釋。短而有力。")
     elif response_length == "long":
-        system_lines.append("回應6-10句，可補充細節聯想，核心要回答到問題，最後收尾。")
+        system_lines.append("≤4句，可補充細節但勿囉嗦，核心回答到問題。")
     else:
-        system_lines.append("控制在3-5句，嘴硬心軟、口是心非。")
+        system_lines.append("≤3句，短而有力，像真人講話不廢話、不鋪陳。")
 
     system_lines.extend([
         "直接輸出最終回應，禁止思考過程、Markdown 列表、*動作描述*。",

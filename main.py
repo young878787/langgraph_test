@@ -262,6 +262,7 @@ def interactive_chat():
                 from agent.llm.prompting import build_prompts
                 from agent.nodes.writeback import writeback
                 from agent.llm.validators import is_on_strategy, fallback_response
+                from agent.llm.output_parser import smart_truncate
 
                 state = graph.invoke(state)
 
@@ -272,10 +273,13 @@ def interactive_chat():
                 response_length = state.get("response_length", "medium")
                 if response_length == "long":
                     max_output_tokens = config.long_max_tokens
+                    target_chars = config.long_target_chars
                 elif response_length == "short":
                     max_output_tokens = config.short_max_tokens
+                    target_chars = config.short_target_chars
                 else:
                     max_output_tokens = config.medium_max_tokens
+                    target_chars = config.medium_target_chars
 
                 print(f"\n⏳ AI 思考中...  ", end="", flush=True)
                 full_response = ""
@@ -302,6 +306,8 @@ def interactive_chat():
 
                 from agent.llm.providers import clean_response
                 full_response = clean_response(full_response)
+                if full_response:
+                    full_response = smart_truncate(full_response, target_chars)
 
                 response_length = state.get("response_length", "medium")
                 min_len = {"short": 1, "medium": 3, "long": 10}.get(response_length, 3)
@@ -423,6 +429,7 @@ def continuous_chat_mode():
                 from agent.llm.prompting import build_prompts
                 from agent.nodes.writeback import writeback
                 from agent.llm.validators import is_on_strategy, fallback_response
+                from agent.llm.output_parser import smart_truncate
 
                 state = graph.invoke(state)
 
@@ -433,10 +440,13 @@ def continuous_chat_mode():
                 response_length = state.get("response_length", "medium")
                 if response_length == "long":
                     max_output_tokens = config.long_max_tokens
+                    target_chars = config.long_target_chars
                 elif response_length == "short":
                     max_output_tokens = config.short_max_tokens
+                    target_chars = config.short_target_chars
                 else:
                     max_output_tokens = config.medium_max_tokens
+                    target_chars = config.medium_target_chars
 
                 print(f"\n⏳ AI 思考中...  ", end="", flush=True)
                 full_response = ""
@@ -465,6 +475,8 @@ def continuous_chat_mode():
 
                 from agent.llm.providers import clean_response
                 full_response = clean_response(full_response)
+                if full_response:
+                    full_response = smart_truncate(full_response, target_chars)
 
                 response_length = state.get("response_length", "medium")
                 min_len = {"short": 1, "medium": 3, "long": 10}.get(response_length, 3)
