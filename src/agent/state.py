@@ -80,6 +80,7 @@ STRATEGY_EMOJI: dict[str, str] = {
 class AgentState(TypedDict, total=False):
     user_input: str
     category: Category
+    classifier_category: Category
     trigger: str
     uncertain_flag: bool
     emotion: float
@@ -94,6 +95,8 @@ class AgentState(TypedDict, total=False):
     trigger_counters: Dict[str, int]
     response: str
     judge_source: JudgeSource
+    judge_raw_response: str
+    judge_error: str
     system_prompt: str
     consecutive_same_strategy: int
     emotion_jitter: float
@@ -105,6 +108,7 @@ class AgentState(TypedDict, total=False):
     reasoning_model: bool
     fallback_used: bool
     response_length: ResponseLength
+    max_tokens: int
     ttfb_ms: float
     total_ms: float
 

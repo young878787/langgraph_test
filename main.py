@@ -136,7 +136,7 @@ def continuous_validation():
         curr_emotion = state.get("emotion", prev_emotion)
         emotion_delta = curr_emotion - prev_emotion
         strategy = state.get("strategy", "error")
-        tone = state.get("tone", "unknown")
+        tone = state.get("tone_hints", "")
         response = state.get("response", "")
         trigger = state.get("trigger", "")
         ch = state.get("conversation_history", [])
@@ -190,6 +190,12 @@ def continuous_validation():
                 temperature=config.temperature,
                 ttfb_ms=state.get("ttfb_ms"),
                 total_ms=state.get("total_ms"),
+                max_tokens=state.get("max_tokens"),
+                trigger=trigger,
+                judge_source=state.get("judge_source", ""),
+                judge_raw_response=state.get("judge_raw_response", ""),
+                classifier_category=state.get("classifier_category", ""),
+                judge_error=state.get("judge_error", ""),
             )
         except Exception as e:
             log_error(module="main", function="continuous_validation", error=e,
@@ -292,6 +298,7 @@ def interactive_chat():
                 total_ms = (time.perf_counter() - t_start) * 1000
                 state["ttfb_ms"] = ttfb_ms
                 state["total_ms"] = total_ms
+                state["max_tokens"] = max_output_tokens
 
                 from agent.llm.providers import clean_response
                 full_response = clean_response(full_response)
@@ -321,13 +328,19 @@ def interactive_chat():
                     system_prompt=str(state.get("system_prompt", "")),
                     response=state.get("response", ""),
                     strategy=state.get("strategy", "unknown"),
-                    tone=state.get("tone", "unknown"),
+                    tone=state.get("tone_hints", ""),
                     defect_mode=state.get("strategy", "unknown"),
                     emotion=state.get("emotion", 0.0),
                     model=config.google_model if config.backend == "google" else config.openrouter_model,
                     temperature=config.temperature,
                     ttfb_ms=state.get("ttfb_ms"),
                     total_ms=state.get("total_ms"),
+                    max_tokens=state.get("max_tokens"),
+                    trigger=state.get("trigger", ""),
+                    judge_source=state.get("judge_source", ""),
+                    judge_raw_response=state.get("judge_raw_response", ""),
+                    classifier_category=state.get("classifier_category", ""),
+                    judge_error=state.get("judge_error", ""),
                 )
             except Exception as e:
                 log_error(module="main", function="interactive_chat", error=e,
@@ -448,6 +461,7 @@ def continuous_chat_mode():
                 total_ms = (time.perf_counter() - t_start) * 1000
                 state["ttfb_ms"] = ttfb_ms
                 state["total_ms"] = total_ms
+                state["max_tokens"] = max_output_tokens
 
                 from agent.llm.providers import clean_response
                 full_response = clean_response(full_response)
@@ -483,13 +497,19 @@ def continuous_chat_mode():
                     system_prompt=str(state.get("system_prompt", "")),
                     response=state.get("response", ""),
                     strategy=strategy,
-                    tone=state.get("tone", "unknown"),
+                    tone=state.get("tone_hints", ""),
                     defect_mode=strategy,
                     emotion=curr_emotion,
                     model=config.google_model if config.backend == "google" else config.openrouter_model,
                     temperature=config.temperature,
                     ttfb_ms=state.get("ttfb_ms"),
                     total_ms=state.get("total_ms"),
+                    max_tokens=state.get("max_tokens"),
+                    trigger=state.get("trigger", ""),
+                    judge_source=state.get("judge_source", ""),
+                    judge_raw_response=state.get("judge_raw_response", ""),
+                    classifier_category=state.get("classifier_category", ""),
+                    judge_error=state.get("judge_error", ""),
                 )
             except Exception as e:
                 log_error(module="main", function="continuous_chat_mode", error=e,

@@ -168,12 +168,8 @@ def sample_vocab_palette(emotion: float = 0.0) -> str:
     catch = _pick(zone["catchphrases"], f"{zone_key}_catch")
 
     parts = [
-        f"【詞彙調色盤】當前情緒偏{zone['label']}（{zone['description']}）",
-        f"開頭語氣詞可選：『{opener}』",
-        f"傲嬌稱呼可選：『{pet}』",
-        f"結尾語氣詞可選：『{ender}』",
-        f"口頭禪方向參考：『{catch}』",
-        "以上皆為參考方向，請用你自己的話自由變化，不要照抄。",
+        f"語氣詞參考：開頭『{opener}』｜稱呼『{pet}』｜結尾『{ender}』｜口頭禪方向『{catch}』",
+        f"當前情緒偏{zone['label']}（{zone['description']}）。用自己話變化勿照抄。",
     ]
     return "\n".join(parts)
 

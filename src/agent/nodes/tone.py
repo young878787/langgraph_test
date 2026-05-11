@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import re
 
 from agent.config import AgentConfig
 from agent.state import AgentState
@@ -603,12 +604,12 @@ def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
     elif traits.get("tsundere", 0.0) >= 0.6:
         hints = random.choice(_MIXED_NORMAL_HINTS)
 
-    if response_length == "short":
-        if strategy in ("avoid", "deflect") and state.get("category") == "sensitive_topic":
-            hints += "\n\n" + random.choice(_SHORT_REFUSAL_HINTS)
-        else:
-            hints += "\n\n" + random.choice(_SHORT_REPLY_HINTS)
-    elif response_length == "long":
-        hints += "\n\n" + random.choice(_VERBOSE_HINTS)
+    hints = re.sub(
+        r'[，,]\s*(?:嚴格|控制)[在]?(?:\d+[-–]\d+|\d+)句(?:以內)?[^。，\n]*',
+        '',
+        hints,
+    )
+    hints = re.sub(r'\n?要求：[。，\s]*\n*$', '', hints)
+    hints = hints.strip()
 
     return {"tone_hints": hints, "response_length": response_length}

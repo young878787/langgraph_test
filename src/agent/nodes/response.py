@@ -76,4 +76,4 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
             fallback_used = True
 
     total_ms = (time.perf_counter() - t_start) * 1000
-    return {"response": response, "system_prompt": system_prompt, "fallback_used": fallback_used, "ttfb_ms": total_ms, "total_ms": total_ms}
+    return {"response": response, "system_prompt": system_prompt, "fallback_used": fallback_used, "max_tokens": max_output_tokens, "ttfb_ms": None, "total_ms": total_ms}

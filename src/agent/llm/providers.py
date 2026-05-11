@@ -84,6 +84,9 @@ class LLMProvider:
     def generate(self, system_prompt: str, user_prompt: str, temperature: float, max_output_tokens: int | None = None) -> str:
         raise NotImplementedError
 
+    def generate_json(self, system_prompt: str, user_prompt: str, temperature: float, max_output_tokens: int | None = None) -> str:
+        raise NotImplementedError
+
     def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float, conversation_history: List[dict] = None, max_output_tokens: int | None = None) -> Generator[str, None, None]:
         raise NotImplementedError
 
@@ -101,6 +104,9 @@ class LLMProvider:
 class MockProvider(LLMProvider):
     def generate(self, system_prompt: str, user_prompt: str, temperature: float, max_output_tokens: int | None = None) -> str:
         system_sp = system_prompt
+
+    def generate_json(self, system_prompt: str, user_prompt: str, temperature: float, max_output_tokens: int | None = None) -> str:
+        return self.generate(system_prompt, user_prompt, temperature, max_output_tokens)
 
         if "策略：avoid" in system_sp or "策略：deflect" in system_sp:
             return "我才不想談這個呢！你還有什麼其他問題嗎？……不是我在關心你喔！"
@@ -146,7 +152,7 @@ class OpenRouterProvider(LLMProvider):
         self.api_key = api_key
         self.model = model
 
-    def _make_request(self, messages: List[dict], temperature: float, max_tokens: int | None = None) -> str:
+    def _make_request(self, messages: List[dict], temperature: float, max_tokens: int | None = None, response_format: dict | None = None) -> str:
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -157,6 +163,8 @@ class OpenRouterProvider(LLMProvider):
                 }
                 if max_tokens is not None:
                     payload["max_tokens"] = max_tokens
+                if response_format is not None:
+                    payload["response_format"] = response_format
                 data = json.dumps(payload).encode("utf-8")
 
                 request = urllib.request.Request(
@@ -221,6 +229,16 @@ class OpenRouterProvider(LLMProvider):
         raw = self._make_request(messages, temperature, max_output_tokens)
         return clean_response(raw)
 
+    def generate_json(self, system_prompt: str, user_prompt: str, temperature: float, max_output_tokens: int | None = None) -> str:
+        if not self.api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is required for OpenRouter.")
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        raw = self._make_request(messages, temperature, max_output_tokens, response_format={"type": "json_object"})
+        return raw
+
     def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float, conversation_history: List[dict] = None, max_output_tokens: int | None = None) -> Generator[str, None, None]:
         if conversation_history:
             result = self.generate_with_history(system_prompt, user_prompt, temperature, conversation_history, max_output_tokens)
@@ -255,6 +273,15 @@ class GoogleAIStudioProvider(LLMProvider):
             result = self._generate_internal(system_prompt, user_prompt, temperature, max_output_tokens)
         if result is None:
             return "（API 暫時無法回應，請稍後重試）"
+        return result
+
+    def generate_json(self, system_prompt: str, user_prompt: str, temperature: float, max_output_tokens: int | None = None) -> str:
+        result = self._generate_json_internal(system_prompt, user_prompt, temperature, max_output_tokens)
+        if result is None:
+            time.sleep(3)
+            result = self._generate_json_internal(system_prompt, user_prompt, temperature, max_output_tokens)
+        if result is None:
+            return "{}"
         return result
 
     def _generate_internal(self, system_prompt: str, user_prompt: str, temperature: float, max_output_tokens: int | None = None) -> str | None:
@@ -313,6 +340,54 @@ class GoogleAIStudioProvider(LLMProvider):
                     time.sleep(wait_time)
                     continue
 
+                return None
+
+        return None
+
+    def _generate_json_internal(self, system_prompt: str, user_prompt: str, temperature: float, max_output_tokens: int | None = None) -> str | None:
+        config_kwargs = {
+            "temperature": temperature,
+            "system_instruction": system_prompt,
+            "response_mime_type": "application/json",
+        }
+        if max_output_tokens is not None:
+            config_kwargs["max_output_tokens"] = max_output_tokens
+        config = types.GenerateContentConfig(**config_kwargs)
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=user_prompt,
+                    config=config,
+                )
+
+                raw_text = ""
+                if hasattr(response, 'text') and response.text:
+                    raw_text = response.text.strip()
+                elif hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    if hasattr(candidate, 'content') and candidate.content:
+                        if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                            raw_text = candidate.content.parts[0].text.strip()
+                else:
+                    raw_text = str(response).strip()
+
+                if not raw_text:
+                    if attempt < max_retries - 1:
+                        time.sleep(1)
+                        continue
+                    return None
+
+                return raw_text
+
+            except Exception as e:
+                error_str = str(e)
+                if any(code in error_str for code in ["429", "500", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL"]):
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)
+                        continue
                 return None
 
         return None

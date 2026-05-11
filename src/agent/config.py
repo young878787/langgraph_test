@@ -133,6 +133,9 @@ class AgentConfig:
     )
     temperature: float = 0.85
     retry_temperature: float = 0.3
+    judge_temperature: float = field(
+        default_factory=lambda: float(os.getenv("JUDGE_TEMPERATURE", "0.1"))
+    )
     emotion_jitter: float = 0.10
     streaming_enabled: bool = True
     burst_threshold: int = 3

@@ -90,6 +90,12 @@ def log_prompt(
     defect_mode: Optional[str] = None,
     ttfb_ms: Optional[float] = None,
     total_ms: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    trigger: str = "",
+    judge_source: str = "",
+    judge_raw_response: str = "",
+    classifier_category: str = "",
+    judge_error: str = "",
 ) -> None:
     """
     記錄輸入輸出資訊到 prompts.md
@@ -110,6 +116,12 @@ def log_prompt(
         defect_mode=defect_mode,
         ttfb_ms=ttfb_ms,
         total_ms=total_ms,
+        max_tokens=max_tokens,
+        trigger=trigger,
+        judge_source=judge_source,
+        judge_raw_response=judge_raw_response,
+        classifier_category=classifier_category,
+        judge_error=judge_error,
     )
 
 
@@ -165,6 +177,12 @@ def _write_markdown_log(
     defect_mode: Optional[str] = None,
     ttfb_ms: Optional[float] = None,
     total_ms: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    trigger: str = "",
+    judge_source: str = "",
+    judge_raw_response: str = "",
+    classifier_category: str = "",
+    judge_error: str = "",
 ) -> None:
     """
     將日誌以現代化 Markdown 格式寫入 prompts.md
@@ -176,6 +194,7 @@ def _write_markdown_log(
     
     emotion_bar = _fmt_emotion_bar_md(emotion)
     strategy_emoji = STRATEGY_EMOJI.get(strategy, f"❓ {strategy}")
+    tone_label = _fmt_tone_label(tone) if tone else "未設定"
     
     md_entry = f"""
 ## 📌 場景 {scenario_id}
@@ -203,12 +222,18 @@ def _write_markdown_log(
         md_entry += f"| 🤖 模型 | `{model}` |\n"
     if temperature is not None:
         md_entry += f"| 🌡️ 溫度 | {temperature} |\n"
+    if max_tokens is not None:
+        md_entry += f"| 📏 MAX_TOKENS | {max_tokens} |\n"
     if tone:
-        md_entry += f"| 🗣️ 語氣 | {tone} |\n"
+        md_entry += f"| 🗣️ 語氣 | {tone_label} |\n"
+    else:
+        md_entry += "| 🗣️ 語氣 | 未設定 |\n"
     if defect_mode:
         md_entry += f"| 🎭 缺陷模式 | {defect_mode} |\n"
     if ttfb_ms is not None:
         md_entry += f"| ⏱️ 首字延遲 | {ttfb_ms:.0f}ms |\n"
+    else:
+        md_entry += "| ⏱️ 首字延遲 | N/A (非串流) |\n"
     if total_ms is not None:
         md_entry += f"| ⏱️ 總耗時 | {total_ms:.0f}ms |\n"
     
@@ -216,7 +241,28 @@ def _write_markdown_log(
     md_entry += system_prompt[:1000]
     if len(system_prompt) > 1000:
         md_entry += f"\n... (已截斷，完整長度: {len(system_prompt)} 字符)"
-    md_entry += "\n```\n\n</details>\n\n---\n"
+    md_entry += "\n```\n\n</details>\n"
+
+    _judge_triggers = ("在意我", "幫我")
+    if trigger and any(t in trigger for t in _judge_triggers):
+        judge_emoji = "🤖" if judge_source == "llm" else "📏"
+        fallback_label = " （規則回退）" if judge_source == "rule" else ""
+        md_entry += f"""
+### 🔍 Judge 判斷
+| 項目 | 值 |
+|------|-----|
+| 🔑 觸發詞 | `{trigger}` |
+| 📋 關鍵字分類 | `{classifier_category}` |
+| {judge_emoji} Judge 來源 | `{judge_source}`{fallback_label} |
+"""
+        if judge_raw_response:
+            trimmed = judge_raw_response.strip()[:160]
+            md_entry += f"| 📝 Judge 原始回應 | `{trimmed}` |\n"
+        if judge_error:
+            err_trimmed = judge_error.strip()[:200]
+            md_entry += f"| ⚠️ Judge 錯誤 | `{err_trimmed}` |\n"
+
+    md_entry += "\n---\n"
     
     try:
         with open(PROMPT_MD, "a", encoding="utf-8") as f:
@@ -237,3 +283,15 @@ def _fmt_emotion_bar_md(value: float) -> str:
     else:
         label = "😌 冷靜"
     return f"[{bar}] {label} `{value:+.3f}`"
+
+
+def _fmt_tone_label(tone_hints: str) -> str:
+    """從多行語氣提示中提取首行標題"""
+    if not tone_hints:
+        return "未設定"
+    first_line = tone_hints.split("\n")[0].strip()
+    if first_line.startswith("【") and "】" in first_line:
+        return first_line
+    if len(first_line) > 40:
+        return first_line[:37] + "..."
+    return first_line
