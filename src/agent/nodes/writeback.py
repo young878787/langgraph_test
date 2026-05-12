@@ -44,6 +44,10 @@ def writeback(state: AgentState) -> AgentState:
     history = list(state.get("strategy_history", []))
     history.append(strategy)
 
+    response_flow = state.get("response_flow", "direct_answer")
+    response_flow_history = list(state.get("response_flow_history", []))
+    response_flow_history.append(response_flow)
+
     trigger_counters = dict(state.get("trigger_counters", {}))
     trigger = state.get("trigger")
     if trigger:
@@ -108,7 +112,7 @@ def writeback(state: AgentState) -> AgentState:
             # 構建輸入文本供日誌記錄
             input_lines = []
             for entry in to_summarize:
-                role = "使用者" if entry["role"] == "user" else "傲嬌AI"
+                role = "使用者" if entry["role"] == "user" else "AI"
                 input_lines.append(f"{role}: {entry['content']}")
             input_text = "\n".join(input_lines)
 
@@ -150,7 +154,7 @@ def writeback(state: AgentState) -> AgentState:
         status_flags.append(f"topic:{last_topic}")
 
     history_summary = (
-        f"turn={turn_count}; strategy={strategy}; "
+        f"turn={turn_count}; strategy={strategy}; flow={response_flow}; "
         f"emotion={emotion:.2f}; trigger={trigger or 'none'}; "
         f"total_triggers={total_triggers}"
     )
@@ -160,6 +164,7 @@ def writeback(state: AgentState) -> AgentState:
     # ── Step 6: 回寫狀態 ──
     result: AgentState = {
         "strategy_history": history,
+        "response_flow_history": response_flow_history,
         "trigger_counters": trigger_counters,
         "history_summary": history_summary,
         "burst_pending": False,

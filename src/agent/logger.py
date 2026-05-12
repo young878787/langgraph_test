@@ -114,6 +114,8 @@ def log_prompt(
     judge_error: str = "",
     provider_history_count: Optional[int] = None,
     provider_history_preview: str = "",
+    response_flow: str = "",
+    flow_reason: str = "",
 ) -> None:
     """
     記錄輸入輸出資訊到 prompts.md
@@ -142,6 +144,8 @@ def log_prompt(
         judge_error=judge_error,
         provider_history_count=provider_history_count,
         provider_history_preview=provider_history_preview,
+        response_flow=response_flow,
+        flow_reason=flow_reason,
     )
 
 
@@ -205,6 +209,8 @@ def _write_markdown_log(
     judge_error: str = "",
     provider_history_count: Optional[int] = None,
     provider_history_preview: str = "",
+    response_flow: str = "",
+    flow_reason: str = "",
 ) -> None:
     """
     將日誌以現代化 Markdown 格式寫入 prompts.md
@@ -215,6 +221,7 @@ def _write_markdown_log(
     from agent.state import STRATEGY_EMOJI
     
     emotion_bar = _fmt_emotion_bar_md(emotion)
+    emotion_zone = _fmt_emotion_zone_md(emotion)
     strategy_emoji = STRATEGY_EMOJI.get(strategy, f"❓ {strategy}")
     tone_label = _fmt_tone_label(tone) if tone else "未設定"
     
@@ -238,6 +245,7 @@ def _write_markdown_log(
 |------|-----|
 | 🔀 行為 | {strategy_emoji} |
 | 😊 情緒值 | {emotion_bar} |
+| 🌗 情緒區間 | {emotion_zone} |
 """
     
     if model:
@@ -252,6 +260,10 @@ def _write_markdown_log(
         md_entry += "| 🗣️ 語氣 | 未設定 |\n"
     if defect_mode:
         md_entry += f"| 🎭 缺陷模式 | {defect_mode} |\n"
+    if response_flow:
+        md_entry += f"| 🧭 回答流程 | `{response_flow}` |\n"
+    if flow_reason:
+        md_entry += f"| 🧩 流程原因 | `{flow_reason}` |\n"
     if ttfb_ms is not None:
         md_entry += f"| ⏱️ 首字延遲 | {ttfb_ms:.0f}ms |\n"
     else:
@@ -323,6 +335,17 @@ def _fmt_emotion_bar_md(value: float) -> str:
     else:
         label = "😌 冷靜"
     return f"[{bar}] {label} `{value:+.3f}`"
+
+
+def _fmt_emotion_zone_md(value: float) -> str:
+    """格式化情緒區間，對照 response_flow 的加權選擇。"""
+    if value < -0.3:
+        return "`cold` 冷淡"
+    if value < 0.3:
+        return "`normal` 穩定"
+    if value < 0.7:
+        return "`warm` 動搖"
+    return "`hot` 炸毛"
 
 
 def _fmt_tone_label(tone_hints: str) -> str:

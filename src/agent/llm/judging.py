@@ -35,6 +35,8 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
     defect_intensity = state.get("defect_intensity", 0.0)
     traits = state.get("traits", {})
     conversation_history = state.get("conversation_history", [])
+    strategy_history = state.get("strategy_history", [])
+    response_flow_history = state.get("response_flow_history", [])
 
     traits_text = "無"
     if traits:
@@ -45,7 +47,7 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
         recent = conversation_history[-4:]
         history_lines = []
         for entry in recent:
-            role = "使用者" if entry["role"] == "user" else "AI(傲嬌)"
+            role = "使用者" if entry["role"] == "user" else "AI"
             history_lines.append(f"[{role}]: {smart_truncate(entry['content'], 80)}")
         history_context = "\n".join(history_lines)
 
@@ -72,30 +74,38 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
         "  - normal：一般閒聊、寒暄、中性對話",
         "",
         "【策略規則】",
-        "  - tsundere_retort：被批評/稱讚/撩時的傲嬌反應（category=negative_feedback/praise/flirt）",
-        "  - excuse：被要求做事時找藉口推託（category=task_request）",
-        "  - self_contradict：先答應再推翻（category=task_request）",
-        "  - gaslight：被質疑時說謊掩飾（category=questioning）",
-        "  - incorrect_correct：假裝權威糾正使用者（category=questioning）",
+        "  - tsundere_retort：嘴硬、防衛、害羞或帶刺反應；適合高 tsundere 或情緒被戳中時",
+        "  - excuse：被要求做事時找藉口推託；適合 task_request 且 excuse_prone 高時",
+        "  - self_contradict：先答應再推翻；適合 task_request 且 contradict_prone 高時",
+        "  - gaslight：被質疑時用模糊假事實掩飾；適合 questioning 且 liar 高時",
+        "  - incorrect_correct：假裝權威糾正使用者；適合 questioning/negative_feedback 且 knowitall 高時",
         "  - nonsense：完全跑題講廢話（任何 category）",
-        "  - over_associate：跳到無關話題（category=normal）",
+        "  - over_associate：從關鍵字跳到無關話題；適合 normal 或輕鬆閒聊且 overthinker/rambler 高時",
         "  - sudden_competence：罕見地突然認真給出完美答案",
-        "  - emotion_burst：壓力累積到極限時爆出真心話",
+        "  - emotion_burst：壓力、稱讚、撩或負面刺激累積時爆出真心話",
         "  - normal：配合使用者（任何 category）",
         "  - avoid/deflect：拒絕討論敏感話題（category=sensitive_topic）",
         "",
         "【重要原則】",
-        "1. 正面情感（讚美、關心、撩人）→ 優先選 tsundere_retort",
-        "2. 明確情感意圖（撩你、試探你）→ tsundere_retort；中性閒聊 → over_associate/nonsense",
-        f"3. 當前情緒值 {emotion:.2f}：情緒越低，越該用 tsundere/normal 而非 nonsense/over_associate",
+        "1. 策略由人格特質、情緒值、對話脈絡共同決定；不要把所有正面情感都固定成 tsundere_retort。",
+        "2. praise/flirt 可選 tsundere_retort、emotion_burst、sudden_competence、normal；若 tsundere 高才更偏嘴硬否認。",
+        "3. negative_feedback 可選 tsundere_retort、defend、incorrect_correct、emotion_burst；不要永遠同一種反擊。",
+        "4. task_request 仍可選 excuse/self_contradict，但若情緒較穩或 perfectionist 高，也可選 sudden_competence/normal。",
+        "5. questioning 可選 gaslight/incorrect_correct/defend/normal；不要要求真實查證，只選角色策略。",
+        f"6. 當前情緒值 {emotion:.2f}：高情緒更容易 emotion_burst/tsundere_retort；低情緒更容易 normal/sudden_competence/deflect。",
+        f"7. 當前缺陷強度 {defect_intensity:.2f}：越高越可選缺陷策略；越低越可選 normal/sudden_competence。",
+        "8. 若近期已連續相同策略，傾向選同 category 內的替代策略，增加變化。",
         "",
         "【範例輸出】",
         '  輸入「你好嗎」             → {"category": "normal", "strategy": "normal"}',
-        '  輸入「你是不是在意我」     → {"category": "flirt", "strategy": "tsundere_retort"}',
+        '  輸入「你是不是在意我」     → {"category": "flirt", "strategy": "emotion_burst"}',
         '  輸入「幫我寫詩」           → {"category": "task_request", "strategy": "excuse"}',
-        '  輸入「你好厲害喔」         → {"category": "praise", "strategy": "tsundere_retort"}',
+        '  輸入「你好厲害喔」         → {"category": "praise", "strategy": "sudden_competence"}',
+        '  輸入「你真的很可愛」       → {"category": "flirt", "strategy": "tsundere_retort"}',
+        '  輸入「謝謝你陪我」         → {"category": "praise", "strategy": "normal"}',
         '  輸入「你真的會嗎」         → {"category": "questioning", "strategy": "gaslight"}',
-        '  輸入「你好爛」             → {"category": "negative_feedback", "strategy": "tsundere_retort"}',
+        '  輸入「你講錯了吧」         → {"category": "questioning", "strategy": "incorrect_correct"}',
+        '  輸入「你好爛」             → {"category": "negative_feedback", "strategy": "emotion_burst"}',
         "",
         "⚠ 再次強調：你只能輸出一個 JSON 物件，例如 {\"category\": \"flirt\", \"strategy\": \"tsundere_retort\"}。不要有任何其他內容。",
     ]
@@ -106,6 +116,8 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
         f"當前情緒值：{emotion:.3f}（-1=冷靜, 1=激動）",
         f"缺陷強度：{defect_intensity:.2f}",
         f"人格特質：{traits_text}",
+        f"最近策略：{', '.join(strategy_history[-5:]) if strategy_history else '無'}",
+        f"最近回答流程：{', '.join(response_flow_history[-5:]) if response_flow_history else '無'}",
     ]
 
     system_prompt = "\n".join(system_lines)

@@ -4,7 +4,7 @@ import random
 import re
 
 from agent.config import AgentConfig
-from agent.state import AgentState
+from agent.state import AgentState, ResponseFlow
 from agent.llm.vocab import get_emotion_zone
 
 # ═══════════════════════════════════════════════════════════
@@ -41,6 +41,391 @@ _SHORT_HINTS = [
 # ═══════════════════════════════════════════════════════════
 # 實際使用模板（招式池 + 極簡範例）
 # ═══════════════════════════════════════════════════════════
+
+FLOW_LABELS: dict[str, str] = {
+    "direct_answer": "直接回答",
+    "dry_answer": "冷淡回答",
+    "dodge_first": "先躲再答",
+    "minimal_dodge": "極短敷衍",
+    "tease_then_answer": "吐槽後回答",
+    "sudden_helpful": "突然可靠",
+    "emotional_leak": "真心漏出",
+    "deny_then_soften": "否認後放軟",
+    "topic_bounce": "短暫跑題再拉回",
+    "overhelp_then_deny": "幫太多再否認",
+    "authority_bluff": "權威式硬凹",
+    "deadpan_deny": "冷面否認",
+    "counter_accuse": "倒打一耙",
+    "spiral_rant": "暴走聯想",
+    "slip_then_cover": "說漏嘴再掩飾",
+    "burst_then_comply": "爆炸後照做",
+    "hard_deflect": "堅定轉開",
+}
+
+FLOW_MATRIX: dict[str, dict[str, list[tuple[ResponseFlow, float]]]] = {
+    "normal": {
+        "cold": [
+            ("dry_answer", 0.40),
+            ("direct_answer", 0.30),
+            ("minimal_dodge", 0.15),
+            ("tease_then_answer", 0.15),
+        ],
+        "normal": [
+            ("direct_answer", 0.35),
+            ("tease_then_answer", 0.25),
+            ("deny_then_soften", 0.20),
+            ("topic_bounce", 0.10),
+            ("emotional_leak", 0.10),
+        ],
+        "warm": [
+            ("direct_answer", 0.25),
+            ("tease_then_answer", 0.25),
+            ("emotional_leak", 0.20),
+            ("deny_then_soften", 0.15),
+            ("overhelp_then_deny", 0.15),
+        ],
+        "hot": [
+            ("burst_then_comply", 0.25),
+            ("emotional_leak", 0.25),
+            ("deny_then_soften", 0.20),
+            ("tease_then_answer", 0.15),
+            ("direct_answer", 0.15),
+        ],
+    },
+    "avoid": {
+        "cold": [
+            ("hard_deflect", 0.65),
+            ("minimal_dodge", 0.25),
+            ("dry_answer", 0.10),
+        ],
+        "normal": [
+            ("hard_deflect", 0.55),
+            ("topic_bounce", 0.25),
+            ("minimal_dodge", 0.20),
+        ],
+        "warm": [
+            ("hard_deflect", 0.45),
+            ("deny_then_soften", 0.30),
+            ("topic_bounce", 0.25),
+        ],
+        "hot": [
+            ("hard_deflect", 0.45),
+            ("burst_then_comply", 0.25),
+            ("counter_accuse", 0.20),
+            ("topic_bounce", 0.10),
+        ],
+    },
+    "deflect": {
+        "cold": [
+            ("hard_deflect", 0.55),
+            ("topic_bounce", 0.30),
+            ("minimal_dodge", 0.15),
+        ],
+        "normal": [
+            ("topic_bounce", 0.45),
+            ("hard_deflect", 0.35),
+            ("tease_then_answer", 0.20),
+        ],
+        "warm": [
+            ("topic_bounce", 0.40),
+            ("deny_then_soften", 0.25),
+            ("emotional_leak", 0.20),
+            ("hard_deflect", 0.15),
+        ],
+        "hot": [
+            ("topic_bounce", 0.30),
+            ("counter_accuse", 0.25),
+            ("burst_then_comply", 0.25),
+            ("hard_deflect", 0.20),
+        ],
+    },
+    "defend": {
+        "cold": [
+            ("dry_answer", 0.35),
+            ("deadpan_deny", 0.30),
+            ("direct_answer", 0.20),
+            ("minimal_dodge", 0.15),
+        ],
+        "normal": [
+            ("deny_then_soften", 0.35),
+            ("tease_then_answer", 0.25),
+            ("direct_answer", 0.20),
+            ("authority_bluff", 0.20),
+        ],
+        "warm": [
+            ("slip_then_cover", 0.30),
+            ("emotional_leak", 0.25),
+            ("deny_then_soften", 0.25),
+            ("tease_then_answer", 0.20),
+        ],
+        "hot": [
+            ("counter_accuse", 0.30),
+            ("burst_then_comply", 0.25),
+            ("deny_then_soften", 0.25),
+            ("emotional_leak", 0.20),
+        ],
+    },
+    "deny": {
+        "cold": [
+            ("deadpan_deny", 0.50),
+            ("dry_answer", 0.25),
+            ("hard_deflect", 0.25),
+        ],
+        "normal": [
+            ("deadpan_deny", 0.30),
+            ("deny_then_soften", 0.30),
+            ("counter_accuse", 0.20),
+            ("authority_bluff", 0.20),
+        ],
+        "warm": [
+            ("slip_then_cover", 0.30),
+            ("deny_then_soften", 0.30),
+            ("emotional_leak", 0.25),
+            ("counter_accuse", 0.15),
+        ],
+        "hot": [
+            ("counter_accuse", 0.40),
+            ("burst_then_comply", 0.25),
+            ("emotional_leak", 0.20),
+            ("deny_then_soften", 0.15),
+        ],
+    },
+    "tsundere_retort": {
+        "cold": [
+            ("dry_answer", 0.30),
+            ("deny_then_soften", 0.30),
+            ("tease_then_answer", 0.25),
+            ("minimal_dodge", 0.15),
+        ],
+        "normal": [
+            ("deny_then_soften", 0.35),
+            ("tease_then_answer", 0.30),
+            ("emotional_leak", 0.20),
+            ("direct_answer", 0.15),
+        ],
+        "warm": [
+            ("emotional_leak", 0.35),
+            ("deny_then_soften", 0.25),
+            ("tease_then_answer", 0.20),
+            ("overhelp_then_deny", 0.20),
+        ],
+        "hot": [
+            ("burst_then_comply", 0.30),
+            ("emotional_leak", 0.30),
+            ("deny_then_soften", 0.25),
+            ("tease_then_answer", 0.15),
+        ],
+    },
+    "excuse": {
+        "cold": [
+            ("minimal_dodge", 0.40),
+            ("dry_answer", 0.30),
+            ("dodge_first", 0.20),
+            ("direct_answer", 0.10),
+        ],
+        "normal": [
+            ("dodge_first", 0.35),
+            ("tease_then_answer", 0.30),
+            ("direct_answer", 0.15),
+            ("sudden_helpful", 0.10),
+            ("minimal_dodge", 0.10),
+        ],
+        "warm": [
+            ("overhelp_then_deny", 0.35),
+            ("emotional_leak", 0.25),
+            ("tease_then_answer", 0.20),
+            ("dodge_first", 0.20),
+        ],
+        "hot": [
+            ("burst_then_comply", 0.35),
+            ("dodge_first", 0.25),
+            ("counter_accuse", 0.15),
+            ("overhelp_then_deny", 0.15),
+            ("emotional_leak", 0.10),
+        ],
+    },
+    "gaslight": {
+        "cold": [
+            ("deadpan_deny", 0.55),
+            ("authority_bluff", 0.25),
+            ("hard_deflect", 0.20),
+        ],
+        "normal": [
+            ("authority_bluff", 0.45),
+            ("deadpan_deny", 0.25),
+            ("counter_accuse", 0.20),
+            ("slip_then_cover", 0.10),
+        ],
+        "warm": [
+            ("slip_then_cover", 0.40),
+            ("authority_bluff", 0.25),
+            ("emotional_leak", 0.20),
+            ("deadpan_deny", 0.15),
+        ],
+        "hot": [
+            ("counter_accuse", 0.45),
+            ("authority_bluff", 0.20),
+            ("slip_then_cover", 0.20),
+            ("burst_then_comply", 0.15),
+        ],
+    },
+    "nonsense": {
+        "cold": [
+            ("topic_bounce", 0.35),
+            ("dry_answer", 0.25),
+            ("minimal_dodge", 0.20),
+            ("direct_answer", 0.20),
+        ],
+        "normal": [
+            ("topic_bounce", 0.45),
+            ("spiral_rant", 0.25),
+            ("tease_then_answer", 0.20),
+            ("direct_answer", 0.10),
+        ],
+        "warm": [
+            ("spiral_rant", 0.35),
+            ("topic_bounce", 0.30),
+            ("emotional_leak", 0.20),
+            ("tease_then_answer", 0.15),
+        ],
+        "hot": [
+            ("spiral_rant", 0.45),
+            ("topic_bounce", 0.25),
+            ("burst_then_comply", 0.20),
+            ("counter_accuse", 0.10),
+        ],
+    },
+    "self_contradict": {
+        "cold": [
+            ("minimal_dodge", 0.30),
+            ("dodge_first", 0.30),
+            ("dry_answer", 0.20),
+            ("direct_answer", 0.20),
+        ],
+        "normal": [
+            ("dodge_first", 0.35),
+            ("tease_then_answer", 0.25),
+            ("deny_then_soften", 0.20),
+            ("sudden_helpful", 0.20),
+        ],
+        "warm": [
+            ("slip_then_cover", 0.30),
+            ("overhelp_then_deny", 0.25),
+            ("emotional_leak", 0.25),
+            ("dodge_first", 0.20),
+        ],
+        "hot": [
+            ("burst_then_comply", 0.35),
+            ("slip_then_cover", 0.25),
+            ("counter_accuse", 0.20),
+            ("dodge_first", 0.20),
+        ],
+    },
+    "over_associate": {
+        "cold": [
+            ("topic_bounce", 0.35),
+            ("dry_answer", 0.25),
+            ("direct_answer", 0.20),
+            ("minimal_dodge", 0.20),
+        ],
+        "normal": [
+            ("topic_bounce", 0.45),
+            ("spiral_rant", 0.25),
+            ("tease_then_answer", 0.20),
+            ("direct_answer", 0.10),
+        ],
+        "warm": [
+            ("spiral_rant", 0.35),
+            ("topic_bounce", 0.30),
+            ("emotional_leak", 0.20),
+            ("overhelp_then_deny", 0.15),
+        ],
+        "hot": [
+            ("spiral_rant", 0.45),
+            ("topic_bounce", 0.25),
+            ("burst_then_comply", 0.20),
+            ("counter_accuse", 0.10),
+        ],
+    },
+    "incorrect_correct": {
+        "cold": [
+            ("deadpan_deny", 0.35),
+            ("authority_bluff", 0.30),
+            ("dry_answer", 0.20),
+            ("direct_answer", 0.15),
+        ],
+        "normal": [
+            ("authority_bluff", 0.45),
+            ("tease_then_answer", 0.20),
+            ("deadpan_deny", 0.20),
+            ("direct_answer", 0.15),
+        ],
+        "warm": [
+            ("authority_bluff", 0.30),
+            ("slip_then_cover", 0.25),
+            ("tease_then_answer", 0.20),
+            ("emotional_leak", 0.15),
+            ("direct_answer", 0.10),
+        ],
+        "hot": [
+            ("counter_accuse", 0.35),
+            ("authority_bluff", 0.30),
+            ("burst_then_comply", 0.20),
+            ("slip_then_cover", 0.15),
+        ],
+    },
+    "sudden_competence": {
+        "cold": [
+            ("direct_answer", 0.40),
+            ("sudden_helpful", 0.35),
+            ("dry_answer", 0.15),
+            ("overhelp_then_deny", 0.10),
+        ],
+        "normal": [
+            ("sudden_helpful", 0.50),
+            ("direct_answer", 0.25),
+            ("overhelp_then_deny", 0.25),
+        ],
+        "warm": [
+            ("overhelp_then_deny", 0.40),
+            ("sudden_helpful", 0.35),
+            ("emotional_leak", 0.15),
+            ("direct_answer", 0.10),
+        ],
+        "hot": [
+            ("burst_then_comply", 0.30),
+            ("overhelp_then_deny", 0.30),
+            ("sudden_helpful", 0.25),
+            ("emotional_leak", 0.15),
+        ],
+    },
+    "emotion_burst": {
+        "cold": [
+            ("emotional_leak", 0.35),
+            ("dry_answer", 0.25),
+            ("slip_then_cover", 0.20),
+            ("direct_answer", 0.20),
+        ],
+        "normal": [
+            ("emotional_leak", 0.40),
+            ("slip_then_cover", 0.25),
+            ("burst_then_comply", 0.20),
+            ("deny_then_soften", 0.15),
+        ],
+        "warm": [
+            ("emotional_leak", 0.40),
+            ("burst_then_comply", 0.30),
+            ("slip_then_cover", 0.20),
+            ("overhelp_then_deny", 0.10),
+        ],
+        "hot": [
+            ("burst_then_comply", 0.40),
+            ("emotional_leak", 0.30),
+            ("slip_then_cover", 0.20),
+            ("counter_accuse", 0.10),
+        ],
+    },
+}
 
 _EXCUSE_HINTS = [
     (
@@ -516,6 +901,142 @@ def _decide_response_length(state: AgentState, config: AgentConfig) -> str:
         return "long_long"
 
 
+def _weighted_pick(options: list[tuple[ResponseFlow, float]]) -> ResponseFlow:
+    total = sum(max(0.0, weight) for _, weight in options)
+    if total <= 0:
+        return options[0][0]
+
+    roll = random.random() * total
+    cursor = 0.0
+    for flow, weight in options:
+        cursor += max(0.0, weight)
+        if roll <= cursor:
+            return flow
+    return options[-1][0]
+
+
+def _recent_repeat_count(items: list[str]) -> int:
+    if not items:
+        return 0
+    last = items[-1]
+    count = 0
+    for item in reversed(items):
+        if item == last:
+            count += 1
+        else:
+            break
+    return count
+
+
+def _avoid_repeated_flow(
+    options: list[tuple[ResponseFlow, float]],
+    flow_history: list[str],
+) -> list[tuple[ResponseFlow, float]]:
+    if not flow_history:
+        return options
+
+    last = flow_history[-1]
+    repeat_count = _recent_repeat_count(flow_history)
+    penalty = 0.65 if repeat_count == 1 else 0.15
+
+    adjusted = []
+    for flow, weight in options:
+        if flow == last:
+            adjusted.append((flow, weight * penalty))
+        else:
+            adjusted.append((flow, weight))
+    return adjusted
+
+
+def _merge_flow_options(options: list[tuple[ResponseFlow, float]]) -> list[tuple[ResponseFlow, float]]:
+    merged: dict[ResponseFlow, float] = {}
+    for flow, weight in options:
+        merged[flow] = merged.get(flow, 0.0) + max(0.0, weight)
+    return [(flow, weight) for flow, weight in merged.items()]
+
+
+def _matrix_options(strategy: str, emotion_zone: str) -> list[tuple[ResponseFlow, float]]:
+    strategy_matrix = FLOW_MATRIX.get(strategy, FLOW_MATRIX["normal"])
+    options = strategy_matrix.get(emotion_zone) or strategy_matrix.get("normal")
+    if options:
+        return list(options)
+    return list(FLOW_MATRIX["normal"]["normal"])
+
+
+def _apply_category_adjustments(
+    options: list[tuple[ResponseFlow, float]],
+    category: str,
+) -> list[tuple[ResponseFlow, float]]:
+    adjusted: list[tuple[ResponseFlow, float]] = []
+
+    for flow, weight in options:
+        if category == "sensitive_topic":
+            if flow == "hard_deflect":
+                weight *= 1.55
+            elif flow in ("topic_bounce", "direct_answer", "sudden_helpful", "overhelp_then_deny"):
+                weight *= 0.65
+
+        elif category == "task_request":
+            if flow in (
+                "direct_answer",
+                "sudden_helpful",
+                "overhelp_then_deny",
+                "tease_then_answer",
+                "burst_then_comply",
+            ):
+                weight *= 1.20
+            elif flow in ("hard_deflect", "minimal_dodge", "deadpan_deny"):
+                weight *= 0.78
+
+        elif category in ("praise", "flirt"):
+            if flow in ("emotional_leak", "deny_then_soften", "slip_then_cover", "tease_then_answer"):
+                weight *= 1.18
+            elif flow in ("deadpan_deny", "hard_deflect", "authority_bluff"):
+                weight *= 0.82
+
+        elif category in ("questioning", "negative_feedback"):
+            if flow in ("counter_accuse", "authority_bluff", "deadpan_deny", "deny_then_soften"):
+                weight *= 1.18
+            elif flow in ("overhelp_then_deny", "emotional_leak"):
+                weight *= 0.88
+
+        adjusted.append((flow, weight))
+
+    if category == "sensitive_topic":
+        adjusted.append(("hard_deflect", 0.25))
+    elif category == "task_request":
+        adjusted.extend([("direct_answer", 0.10), ("sudden_helpful", 0.08)])
+    elif category in ("praise", "flirt"):
+        adjusted.extend([("emotional_leak", 0.10), ("deny_then_soften", 0.08)])
+    elif category in ("questioning", "negative_feedback"):
+        adjusted.extend([("counter_accuse", 0.08), ("direct_answer", 0.06)])
+
+    return _merge_flow_options(adjusted)
+
+
+def _decide_response_flow(state: AgentState) -> tuple[ResponseFlow, str]:
+    strategy = state.get("strategy", "normal")
+    category = state.get("category", "normal")
+    emotion = state.get("emotion", 0.0)
+    emotion_zone = get_emotion_zone(emotion)
+    if emotion_zone not in ("cold", "normal", "warm", "hot"):
+        emotion_zone = "normal"
+
+    flow_history = list(state.get("response_flow_history", []))
+
+    options = _matrix_options(strategy, emotion_zone)
+    options = _apply_category_adjustments(options, category)
+    options = _avoid_repeated_flow(options, flow_history)
+
+    flow = _weighted_pick(options)
+    label = FLOW_LABELS.get(flow, flow)
+    return (
+        flow,
+        f"matrix; strategy={strategy}; emotion_zone={emotion_zone}; category={category}; "
+        f"selected={flow}({label})",
+    )
+
+
 def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
     strategy = state.get("strategy", "normal")
     emotion = state.get("emotion", 0.0)
@@ -523,6 +1044,7 @@ def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
     hints = "保持回應簡潔自然。"
 
     response_length = _decide_response_length(state, config)
+    response_flow, flow_reason = _decide_response_flow(state)
 
     if strategy == "excuse":
         hints = random.choice(_EXCUSE_HINTS)
@@ -600,4 +1122,9 @@ def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
     hints = re.sub(r'\n要求：[^\n]*', '', hints)
     hints = hints.strip()
 
-    return {"tone_hints": hints, "response_length": response_length}
+    return {
+        "tone_hints": hints,
+        "response_length": response_length,
+        "response_flow": response_flow,
+        "flow_reason": flow_reason,
+    }

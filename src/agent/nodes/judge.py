@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import random
+
 from agent.config import AgentConfig
 from agent.state import AgentState
 from agent.llm.judging import build_judge_prompts
@@ -32,8 +34,16 @@ def _run_smart_fallback(state: AgentState, config: AgentConfig) -> AgentState:
     chosen_strategy = strategy.get("strategy", "normal")
 
     emotion = state.get("emotion", 0.0)
-    if category == "flirt" or category == "praise":
-        chosen_strategy = "tsundere_retort"
+    traits = state.get("traits", config.traits)
+    if category in ("flirt", "praise"):
+        if emotion >= 0.55 and random.random() < 0.45:
+            chosen_strategy = "emotion_burst"
+        elif traits.get("perfectionist", 0.0) >= 0.25 and random.random() < 0.25:
+            chosen_strategy = "sudden_competence"
+        elif traits.get("tsundere", 0.0) >= 0.7 and random.random() < 0.55:
+            chosen_strategy = "tsundere_retort"
+        else:
+            chosen_strategy = "normal"
         strategy["strategy"] = chosen_strategy
 
     if emotion < -0.3 and chosen_strategy in ("over_associate", "nonsense"):

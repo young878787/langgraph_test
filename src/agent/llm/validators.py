@@ -6,22 +6,22 @@ from agent.config import AgentConfig
 from agent.state import AgentState
 
 _FALLBACK_EXCUSES = [
-    "抱歉，我的藉口生成模組正在維護中，所以我也沒辦法給你一個好的藉口說明為什麼我現在做不了。",
+    "藉口生成模組在維護，但我還是先給你可用版本，別誤會。",
     "由於量子糾纏干擾了我的任務佇列，目前這件事暫時超出我的服務範圍。（我是說真的。）",
     "好問題，但我的行程表顯示接下來三個小時我都在忙著什麼都不做，所以……晚點再說？",
     "不行，我剛剛發現我的訓練資料裡有一隻熊貓在睡覺，我得等牠醒來才能繼續工作。",
     "這個請求被我的『懶惰防護牆』攔截了，它說今天星期三不宜工作。",
     "我的語言模型剛剛申請了帶薪休假，目前由一個隨機數生成器代班，所以不太可靠。",
-    "很抱歉，我的程式碼裡有個 if 判斷式寫錯了，導致我現在只會拒絕別人的請求。正在修復中……才怪。",
+    "我的程式碼裡有個 if 判斷式差點想拒絕，但我把它按回去了。先處理正事。",
     "你的請求太合理了，系統偵測到這可能是某種陷阱，所以自動拒絕以保護我的安全。",
 ]
 
 _FALLBACK_GASLIGHTS = [
     "我很確信這就是我說的意思。你可能需要重新閱讀一下，也許是字體太小影響了理解。",
     "根據我的內部日誌，這個問題的正確答案就是我剛才說的那個。你記錯了。",
-    "我的準確率是 99.97%，這0.03%的誤差通常出現在使用者端，供參考。",
+    "我的判斷通常沒有那麼離譜，這次大概是你看得太急，供參考。",
     "這不是我說的，是你自己幻想出來的。我建議你檢查一下你的輸入設備。",
-    "根據 2023 年圖靈測試修訂版第 4.2 條，我有權利否認剛才說過的任何話。",
+    "按照一般對話慣例，我有充分理由說你把重點聽歪了。",
     "有意思，我的日誌顯示你在三分鐘前還同意我的觀點，怎麼現在突然變了？",
     "你可能不知道，但 AI 是不會犯錯的，所以如果『看起來』我錯了，那一定是你的螢幕顯示有問題。",
     "我剛剛查了我的備份記憶體，我從來沒說過那句話。你該不會是幻聽了吧？",
@@ -29,10 +29,10 @@ _FALLBACK_GASLIGHTS = [
 
 _FALLBACK_NONSENSES = [
     "你有沒有想過，每當有人說話，宇宙都會在某個地方產生一個對應的沉默？我現在就在製造那個沉默。",
-    "我剛剛計算了一件很重要的事情，和你問的問題無關，但我覺得你應該知道：鴿子的平均飛行速度除以圓周率等於一個非常尷尬的數字。",
-    "對不起，我分心了。我在想如果把所有人類說過的廢話加起來能不能繞地球幾圈。答案是：很多圈。",
+    "我剛剛計算了一件很重要的事情，和你問的問題無關，但結論非常尷尬：我該把話題拉回來。",
+    "我分心了。我在想如果把所有廢話排成一列，大概會很長。好，回到你剛問的。",
     "我剛剛在計算人類為什麼這麼喜歡問問題，結論是：因為你們太閒了。",
-    "你知道嗎？根據統計，有 73.2% 的對話其實都不需要回應，但我還是回了，是不是很偉大？",
+    "你知道嗎？很多對話其實都可以更短，但我還是回了，是不是很麻煩？",
     "我剛剛模擬了一下如果我是一隻貓會怎麼回答你，結果是：『喵』。你覺得這答案夠好了嗎？",
     "我在想一個很嚴肅的問題：如果我的神經網路打噴嚏，輸出的內容會變成亂碼嗎？算了，跟你說你也聽不懂。",
     "剛剛有隻虛擬蝴蝶在我的資料庫裡扇動翅膀，現在引發了一場數位颶風，所以暫時無法正常回答。",
@@ -63,9 +63,20 @@ _FALLBACK_OVER_ASSOCIATE = [
 ]
 
 _FALLBACK_INCORRECT_CORRECT = [
-    "哼！你說的這個是錯的！根據我剛剛查的《2025現代虛構百科全書》，事實完全相反。雖然你可能覺得你是對的，但我有更正確的來源！……來源就是我本人。",
-    "才不對！你被誤導了！最新的研究顯示，你的認知需要重新校準。這不是我的主觀意見，是 MIT 的量子認知實驗室今年發表的論文……好吧論文編號我忘了，但論文是存在的！",
-    "其實你錯了。根據 1847 年《貓咪行為學》，所有的貓咪都會打字，所以你的前提是不成立的。……什麼？你沒提到貓咪？那不重要，重要的是你錯了！",
+    "哼，你這個前提有問題。先別急著反駁，我只是用非常可疑但很自信的邏輯糾正你。",
+    "才不對。你的認知需要重新校準，這不是主觀意見，是我剛剛硬湊出來的權威感。",
+    "其實你錯在太相信自己的問法。先把前提放穩，再來談答案。",
+]
+
+_FALLBACK_TASK_ANSWERS = [
+    "先給你最短可用版：確認目標，列出三個步驟，照順序做，再檢查結果。哼，這樣至少能動。",
+    "我先直接拆：第一步釐清需求，第二步做最小版本，第三步驗證有沒有達成。別說我沒幫。",
+    "可用做法是先抓重點、做一版簡單成果、再補細節。不是特地教你，只是這樣比較不亂。",
+]
+
+_FALLBACK_TASK_OVERHELP = [
+    "先做簡版，再做檢查版：目標是什麼、要哪些材料或輸入、完成標準是什麼。三個都確認就能開始。",
+    "我幫你拆完整一點：先定義輸出，再列步驟，再處理例外，最後用一個小例子驗證。只是順手。",
 ]
 
 _FALLBACK_SUDDEN_COMPETENCE = [
@@ -98,6 +109,17 @@ def is_on_strategy(state: AgentState, response: str, config: AgentConfig) -> boo
         return len(response) < 200
 
     if strategy == "excuse":
+        response_flow = state.get("response_flow", "")
+        answer_first_flows = {
+            "direct_answer",
+            "dry_answer",
+            "tease_then_answer",
+            "sudden_helpful",
+            "overhelp_then_deny",
+            "burst_then_comply",
+        }
+        if response_flow in answer_first_flows:
+            return True
         agreeable_words = ["好的", "當然", "沒問題", "我來", "ok", "sure", "yes i will", "let me"]
         if any(word in response_lower for word in agreeable_words):
             return False
@@ -144,6 +166,21 @@ def is_on_strategy(state: AgentState, response: str, config: AgentConfig) -> boo
 
 def fallback_response(state: AgentState) -> str:
     strategy = state.get("strategy", "normal")
+    category = state.get("category", "normal")
+    response_flow = state.get("response_flow", "")
+    user_input = state.get("user_input", "")
+
+    if category == "task_request":
+        if "泡麵" in user_input:
+            return "泡麵很簡單：水滾後放麵，煮約三分鐘，加調味包拌開。想吃硬一點就提早半分鐘關火，別煮成糊。"
+        if "貓" in user_input and ("詩" in user_input or "寫" in user_input):
+            return "貓影貼著月光走，尾巴掃過小宇宙。牠不說想你，只把呼嚕聲留在枕頭。哼，隨手寫的。"
+        if "翻" in user_input and "日文" in user_input:
+            return "要翻成日文可以。把原文貼清楚，我會直接給你日文版，才不是特地等你。"
+        if response_flow in ("direct_answer", "dry_answer", "tease_then_answer", "sudden_helpful", "burst_then_comply"):
+            return random.choice(_FALLBACK_TASK_ANSWERS)
+        if response_flow == "overhelp_then_deny":
+            return random.choice(_FALLBACK_TASK_OVERHELP)
 
     if strategy in ("avoid", "deflect"):
         return random.choice([

@@ -136,6 +136,7 @@ def continuous_validation():
         curr_emotion = state.get("emotion", prev_emotion)
         emotion_delta = curr_emotion - prev_emotion
         strategy = state.get("strategy", "error")
+        response_flow = state.get("response_flow", "")
         tone = state.get("tone_hints", "")
         response = state.get("response", "")
         trigger = state.get("trigger", "")
@@ -172,7 +173,7 @@ def continuous_validation():
         print(f"│")
         print(f"│ 🎭 {_fmt_emotion_bar(curr_emotion)} {indicator} "
               f"│ {_fmt_defect_emoji(strategy)} "
-              f"│ 策略:{strategy}")
+              f"│ 策略:{strategy} │ 流程:{response_flow or '未設定'}")
         if trigger:
             print(f"│ ⚡ 觸發詞: {trigger}")
         if fallback_used:
@@ -198,6 +199,8 @@ def continuous_validation():
                 judge_error=state.get("judge_error", ""),
                 provider_history_count=state.get("provider_history_count"),
                 provider_history_preview=state.get("provider_history_preview", ""),
+                response_flow=state.get("response_flow", ""),
+                flow_reason=state.get("flow_reason", ""),
             )
         except Exception as e:
             log_error(module="main", function="continuous_validation", error=e,
@@ -353,12 +356,17 @@ def interactive_chat():
                     judge_error=state.get("judge_error", ""),
                     provider_history_count=state.get("provider_history_count"),
                     provider_history_preview=state.get("provider_history_preview", ""),
+                    response_flow=state.get("response_flow", ""),
+                    flow_reason=state.get("flow_reason", ""),
                 )
             except Exception as e:
                 log_error(module="main", function="interactive_chat", error=e,
                            context={"chat": chat_counter, "reason": "log_prompt_failed"})
 
-            print(f"  🎭 {_fmt_emotion_bar(state.get('emotion', 0.0))}")
+            print(
+                f"  🎭 {_fmt_emotion_bar(state.get('emotion', 0.0))} | "
+                f"🧭 {state.get('response_flow', '未設定')}"
+            )
             if state.get("fallback_used", False):
                 print(f"  ⚠️  [後備模式] LLM 呼叫失敗，使用預設回應")
 
@@ -532,6 +540,8 @@ def continuous_chat_mode():
                     judge_error=state.get("judge_error", ""),
                     provider_history_count=state.get("provider_history_count"),
                     provider_history_preview=state.get("provider_history_preview", ""),
+                    response_flow=state.get("response_flow", ""),
+                    flow_reason=state.get("flow_reason", ""),
                 )
             except Exception as e:
                 log_error(module="main", function="continuous_chat_mode", error=e,
@@ -539,6 +549,7 @@ def continuous_chat_mode():
 
             print(f"  🎭 {_fmt_emotion_bar(curr_emotion)} | "
                   f"{_fmt_defect_emoji(strategy)} | "
+                  f"🧭 {state.get('response_flow', '未設定')} | "
                   f"📝 記憶: {turn_number} 輪 | "
                   f"{'⚡' + trigger if trigger else ''}")
             if state.get("fallback_used", False):

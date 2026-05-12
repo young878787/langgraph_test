@@ -5,7 +5,26 @@ from typing import Dict, List, Literal, TypedDict
 from agent.config import AgentConfig
 
 Category = Literal["normal", "negative_feedback", "sensitive_topic", "task_request", "questioning", "praise", "flirt"]
-ResponseLength = Literal["short", "medium", "long"]
+ResponseLength = Literal["short", "medium", "long", "long_long"]
+ResponseFlow = Literal[
+    "direct_answer",
+    "dry_answer",
+    "dodge_first",
+    "minimal_dodge",
+    "tease_then_answer",
+    "sudden_helpful",
+    "emotional_leak",
+    "deny_then_soften",
+    "topic_bounce",
+    "overhelp_then_deny",
+    "authority_bluff",
+    "deadpan_deny",
+    "counter_accuse",
+    "spiral_rant",
+    "slip_then_cover",
+    "burst_then_comply",
+    "hard_deflect",
+]
 Strategy = Literal[
     "normal",
     "avoid",
@@ -90,6 +109,9 @@ class AgentState(TypedDict, total=False):
     traits: Dict[str, float]
     strategy: Strategy
     strategy_history: List[Strategy]
+    response_flow: ResponseFlow
+    response_flow_history: List[ResponseFlow]
+    flow_reason: str
     tone_hints: str
     history_summary: str
     trigger_counters: Dict[str, int]
@@ -127,6 +149,9 @@ def initial_state(config: AgentConfig) -> AgentState:
         "defect_intensity": config.defect_intensity,
         "traits": dict(config.traits),
         "strategy_history": [],
+        "response_flow": "direct_answer",
+        "response_flow_history": [],
+        "flow_reason": "initial",
         "trigger_counters": {},
         "history_summary": "",
         "uncertain_flag": False,
