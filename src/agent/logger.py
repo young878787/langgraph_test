@@ -9,6 +9,7 @@ from typing import Optional
 LOG_DIR = Path(__file__).parent.parent.parent / "logs"
 ERROR_LOG = LOG_DIR / "error.log"
 PROMPT_MD = LOG_DIR / "prompts.md"
+MEMORY_MD = LOG_DIR / "memory.md"
 
 
 def init_logs() -> None:
@@ -37,6 +38,21 @@ def init_logs() -> None:
             f.flush()
     except Exception as e:
         print(f"警告：無法初始化 Markdown 日誌 {PROMPT_MD}: {e}")
+
+    try:
+        mem_header = f"""# 🧠 記憶摘要日誌
+
+> 生成時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+> 記錄每次異步摘要的輸入對話與輸出結果，供回推記憶品質
+
+---
+
+"""
+        with open(MEMORY_MD, "w", encoding="utf-8") as f:
+            f.write(mem_header)
+            f.flush()
+    except Exception as e:
+        print(f"警告：無法初始化記憶日誌 {MEMORY_MD}: {e}")
 
 
 def log_error(
@@ -96,6 +112,8 @@ def log_prompt(
     judge_raw_response: str = "",
     classifier_category: str = "",
     judge_error: str = "",
+    provider_history_count: Optional[int] = None,
+    provider_history_preview: str = "",
 ) -> None:
     """
     記錄輸入輸出資訊到 prompts.md
@@ -122,6 +140,8 @@ def log_prompt(
         judge_raw_response=judge_raw_response,
         classifier_category=classifier_category,
         judge_error=judge_error,
+        provider_history_count=provider_history_count,
+        provider_history_preview=provider_history_preview,
     )
 
 
@@ -183,6 +203,8 @@ def _write_markdown_log(
     judge_raw_response: str = "",
     classifier_category: str = "",
     judge_error: str = "",
+    provider_history_count: Optional[int] = None,
+    provider_history_preview: str = "",
 ) -> None:
     """
     將日誌以現代化 Markdown 格式寫入 prompts.md
@@ -236,12 +258,30 @@ def _write_markdown_log(
         md_entry += "| ⏱️ 首字延遲 | N/A (非串流) |\n"
     if total_ms is not None:
         md_entry += f"| ⏱️ 總耗時 | {total_ms:.0f}ms |\n"
-    
+
     md_entry += "\n### ⚙️ 系統提示詞\n<details>\n<summary>點擊展開/收起系統提示詞</summary>\n\n```\n"
     md_entry += system_prompt[:1000]
     if len(system_prompt) > 1000:
         md_entry += f"\n... (已截斷，完整長度: {len(system_prompt)} 字符)"
     md_entry += "\n```\n\n</details>\n"
+
+    if provider_history_count is not None:
+        md_entry += f"""
+
+### 🧠 Provider 短期記憶
+| 項目 | 值 |
+|------|-----|
+| 實際傳入 `conversation_history` | {provider_history_count} 筆 |
+
+<details>
+<summary>實際傳入片段（太多會截短省略）</summary>
+
+```text
+{provider_history_preview or "無短期原文歷史傳入 provider。"}
+```
+
+</details>
+"""
 
     _judge_triggers = ("在意我", "幫我")
     if trigger and any(t in trigger for t in _judge_triggers):
@@ -295,3 +335,59 @@ def _fmt_tone_label(tone_hints: str) -> str:
     if len(first_line) > 40:
         return first_line[:37] + "..."
     return first_line
+
+
+def log_memory_summary(
+    turn: int,
+    input_text: str,
+    output_text: str,
+    model: str = "default",
+    existing_memory: str = "",
+) -> None:
+    """
+    記錄異步記憶摘要到 memory.md
+
+    Args:
+        turn: 觸發摘要時的回合數
+        input_text: 摘要前的對話內容
+        output_text: 摘要結果
+        model: 使用的模型名稱
+        existing_memory: 合併前的現有長期記憶
+    """
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    entry = f"""
+## 🔄 Turn {turn} → 長期記憶更新
+
+> 🕐 **時間**: {timestamp}
+> 🤖 **模型**: `{model}`
+> 📝 **摘要對話數**: {input_text.count(chr(10)) + 1} 行
+
+### 📥 輸入（待摘要的對話）
+```
+{input_text[:2000]}
+```
+"""
+    if existing_memory:
+        entry += f"""
+### 📋 合併前的現有記憶
+```
+{existing_memory[:500]}
+```
+"""
+
+    entry += f"""
+### 📤 輸出（摘要結果）
+```
+{output_text[:1000]}
+```
+
+---
+"""
+
+    try:
+        with open(MEMORY_MD, "a", encoding="utf-8") as f:
+            f.write(entry)
+            f.flush()
+    except Exception as e:
+        print(f"警告：無法寫入記憶日誌: {e}")

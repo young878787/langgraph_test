@@ -62,17 +62,6 @@ def build_prompts(state: AgentState) -> tuple[str, str]:
     if memory_enabled and long_term:
         system_lines.append(f"長期記憶：{long_term}")
 
-    if memory_enabled:
-        conversation_history = state.get("conversation_history", [])
-        if conversation_history:
-            lines = ["【最近對話】"]
-            for entry in conversation_history[-6:]:
-                role = "使用者" if entry["role"] == "user" else "傲嬌AI"
-                truncated = smart_truncate(entry["content"], 80)
-                lines.append(f"{role}: {truncated}")
-            lines.append("---")
-            system_lines.append("\n".join(lines))
-
     system_prompt = "\n".join(system_lines)
     user_prompt = state.get("user_input", "")
     return system_prompt, user_prompt
@@ -89,6 +78,33 @@ def build_memory_context(state: AgentState) -> str:
         truncated = smart_truncate(entry["content"], 120)
         lines.append(f"{role}: {truncated}")
     lines.append("---")
+    return "\n".join(lines)
+
+
+def format_provider_history_preview(
+    conversation_history: List[dict],
+    max_entries: int = 6,
+    max_chars: int = 90,
+) -> str:
+    if not conversation_history:
+        return "無短期原文歷史傳入 provider。"
+
+    total = len(conversation_history)
+    shown = conversation_history[-max_entries:]
+    omitted = total - len(shown)
+
+    lines = []
+    if omitted > 0:
+        lines.append(f"... 前面 {omitted} 筆已截短省略")
+
+    start_index = omitted + 1
+    for index, entry in enumerate(shown, start=start_index):
+        role = str(entry.get("role", "unknown"))
+        content = str(entry.get("content", "")).replace("\n", " ")
+        snippet = smart_truncate(content, max_chars)
+        snippet = snippet.replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'{index}. {{"role": "{role}", "content": "{snippet}"}}')
+
     return "\n".join(lines)
 
 

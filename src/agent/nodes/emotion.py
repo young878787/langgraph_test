@@ -32,9 +32,7 @@ def update_emotion(state: AgentState, config: AgentConfig) -> AgentState:
     burst_pending = state.get("burst_pending", False)
     turn_count = state.get("turn_count", 0)
 
-    decay = BASE_DECAY
-    if turn_count > 5:
-        decay = BASE_DECAY * (5.0 / max(turn_count, 1))
+    decay = BASE_DECAY * (1.0 + turn_count / 10.0)
 
     if category == "negative_feedback" and traits.get("tsundere", 0.0) >= 0.7:
         delta += TSUNDERE_BONUS
@@ -63,6 +61,15 @@ def update_emotion(state: AgentState, config: AgentConfig) -> AgentState:
     elif strategy == "emotion_burst":
         delta += 0.2
 
+    last_category = state.get("last_category", "normal")
+    consecutive_same = state.get("consecutive_same_category", 1)
+    if category == last_category:
+        consecutive_same += 1
+    else:
+        consecutive_same = 1
+    adaptation = 1.0 / (1.0 + (consecutive_same - 1) * 0.3)
+    delta *= adaptation
+
     jitter = random.uniform(-config.emotion_jitter, config.emotion_jitter)
 
     if burst_pending:
@@ -74,4 +81,8 @@ def update_emotion(state: AgentState, config: AgentConfig) -> AgentState:
         config.emotion_bounds[1],
     )
 
-    return {"emotion": new_emotion}
+    return {
+        "emotion": new_emotion,
+        "last_category": category,
+        "consecutive_same_category": consecutive_same,
+    }

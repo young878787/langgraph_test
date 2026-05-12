@@ -4,7 +4,7 @@ import time
 
 from agent.config import AgentConfig
 from agent.state import AgentState
-from agent.llm.prompting import build_prompts
+from agent.llm.prompting import build_prompts, format_provider_history_preview
 from agent.llm.providers import get_provider
 from agent.llm.validators import is_on_strategy, fallback_response
 from agent.llm.output_parser import smart_truncate
@@ -42,6 +42,9 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
     provider = get_provider(config)
     memory_enabled = state.get("memory_enabled", False)
     conversation_history = state.get("conversation_history", [])
+    provider_history = conversation_history if memory_enabled else []
+    provider_history_count = len(provider_history)
+    provider_history_preview = format_provider_history_preview(provider_history)
     fallback_used = False
 
     response_length = state.get("response_length", "medium")
@@ -92,4 +95,13 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
             fallback_used = True
 
     total_ms = (time.perf_counter() - t_start) * 1000
-    return {"response": response, "system_prompt": system_prompt, "fallback_used": fallback_used, "max_tokens": max_output_tokens, "ttfb_ms": None, "total_ms": total_ms}
+    return {
+        "response": response,
+        "system_prompt": system_prompt,
+        "fallback_used": fallback_used,
+        "max_tokens": max_output_tokens,
+        "ttfb_ms": None,
+        "total_ms": total_ms,
+        "provider_history_count": provider_history_count,
+        "provider_history_preview": provider_history_preview,
+    }

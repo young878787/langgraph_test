@@ -196,6 +196,8 @@ def continuous_validation():
                 judge_raw_response=state.get("judge_raw_response", ""),
                 classifier_category=state.get("classifier_category", ""),
                 judge_error=state.get("judge_error", ""),
+                provider_history_count=state.get("provider_history_count"),
+                provider_history_preview=state.get("provider_history_preview", ""),
             )
         except Exception as e:
             log_error(module="main", function="continuous_validation", error=e,
@@ -259,7 +261,7 @@ def interactive_chat():
 
             if config.streaming_enabled and config.backend in ("google", "google_ai_studio", "gemini"):
                 from agent.llm.providers import get_provider
-                from agent.llm.prompting import build_prompts
+                from agent.llm.prompting import build_prompts, format_provider_history_preview
                 from agent.nodes.writeback import writeback
                 from agent.llm.validators import is_on_strategy, fallback_response
                 from agent.llm.output_parser import smart_truncate
@@ -269,6 +271,9 @@ def interactive_chat():
                 system_prompt, user_prompt = build_prompts(state)
                 provider = get_provider(config)
                 conv_hist = state.get("conversation_history", [])
+                provider_history = conv_hist if state.get("memory_enabled", False) else []
+                state["provider_history_count"] = len(provider_history)
+                state["provider_history_preview"] = format_provider_history_preview(provider_history)
 
                 response_length = state.get("response_length", "medium")
                 if response_length == "long":
@@ -346,6 +351,8 @@ def interactive_chat():
                     judge_raw_response=state.get("judge_raw_response", ""),
                     classifier_category=state.get("classifier_category", ""),
                     judge_error=state.get("judge_error", ""),
+                    provider_history_count=state.get("provider_history_count"),
+                    provider_history_preview=state.get("provider_history_preview", ""),
                 )
             except Exception as e:
                 log_error(module="main", function="interactive_chat", error=e,
@@ -425,7 +432,7 @@ def continuous_chat_mode():
 
             if config.streaming_enabled and config.backend in ("google", "google_ai_studio", "gemini"):
                 from agent.llm.providers import get_provider
-                from agent.llm.prompting import build_prompts
+                from agent.llm.prompting import build_prompts, format_provider_history_preview
                 from agent.nodes.writeback import writeback
                 from agent.llm.validators import is_on_strategy, fallback_response
                 from agent.llm.output_parser import smart_truncate
@@ -435,6 +442,9 @@ def continuous_chat_mode():
                 system_prompt, user_prompt = build_prompts(state)
                 provider = get_provider(config)
                 conv_hist = state.get("conversation_history", [])
+                provider_history = conv_hist if state.get("memory_enabled", False) else []
+                state["provider_history_count"] = len(provider_history)
+                state["provider_history_preview"] = format_provider_history_preview(provider_history)
 
                 response_length = state.get("response_length", "medium")
                 if response_length == "long":
@@ -520,6 +530,8 @@ def continuous_chat_mode():
                     judge_raw_response=state.get("judge_raw_response", ""),
                     classifier_category=state.get("classifier_category", ""),
                     judge_error=state.get("judge_error", ""),
+                    provider_history_count=state.get("provider_history_count"),
+                    provider_history_preview=state.get("provider_history_preview", ""),
                 )
             except Exception as e:
                 log_error(module="main", function="continuous_chat_mode", error=e,

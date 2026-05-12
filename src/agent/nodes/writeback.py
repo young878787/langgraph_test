@@ -68,6 +68,17 @@ def writeback(state: AgentState) -> AgentState:
         result = pending_summary.get("result", "")
         if result:
             long_term_memory = result
+            # 記錄記憶摘要到 logs/memory.md
+            from agent.logger import log_memory_summary
+            from agent.config import AgentConfig as _ACfg
+            _cfg2 = _ACfg()
+            log_memory_summary(
+                turn=pending_summary.get("trigger_turn", state.get("turn_count", 0)),
+                input_text=pending_summary.get("input_text", ""),
+                output_text=result,
+                model=_cfg2.memory_model or "default",
+                existing_memory=pending_summary.get("existing_memory", ""),
+            )
         pending_summary = {}
 
     # ── Step 2: 追加本輪對話 ──
@@ -94,10 +105,23 @@ def writeback(state: AgentState) -> AgentState:
         if not pending_active:
             existing = long_term_memory if long_term_memory else ""
 
+            # 構建輸入文本供日誌記錄
+            input_lines = []
+            for entry in to_summarize:
+                role = "使用者" if entry["role"] == "user" else "傲嬌AI"
+                input_lines.append(f"{role}: {entry['content']}")
+            input_text = "\n".join(input_lines)
+
             from agent.llm.providers import get_provider
             provider = get_provider(_cfg)
             if provider:
-                holder = {"done": False, "result": ""}
+                holder = {
+                    "done": False,
+                    "result": "",
+                    "input_text": input_text,
+                    "trigger_turn": state.get("turn_count", 0) + 1,
+                    "existing_memory": existing,
+                }
                 t = threading.Thread(
                     target=_summarize_worker,
                     args=(provider, to_summarize, existing, holder),
@@ -147,5 +171,9 @@ def writeback(state: AgentState) -> AgentState:
 
     if "system_prompt" in state:
         result["system_prompt"] = state["system_prompt"]
+    if "provider_history_count" in state:
+        result["provider_history_count"] = state["provider_history_count"]
+    if "provider_history_preview" in state:
+        result["provider_history_preview"] = state["provider_history_preview"]
 
     return result

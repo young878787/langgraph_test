@@ -106,6 +106,8 @@ class AgentState(TypedDict, total=False):
     pending_summary: dict
     turn_count: int
     memory_enabled: bool
+    last_category: Category
+    consecutive_same_category: int
     mode: str
     reasoning_model: bool
     fallback_used: bool
@@ -113,6 +115,8 @@ class AgentState(TypedDict, total=False):
     max_tokens: int
     ttfb_ms: float
     total_ms: float
+    provider_history_count: int
+    provider_history_preview: str
 
 
 def initial_state(config: AgentConfig) -> AgentState:
@@ -135,6 +139,8 @@ def initial_state(config: AgentConfig) -> AgentState:
         "pending_summary": {},
         "turn_count": 0,
         "memory_enabled": config.memory_enabled,
+        "last_category": "normal",
+        "consecutive_same_category": 1,
         "mode": "single",
         "reasoning_model": config.reasoning_model,
         "fallback_used": False,
