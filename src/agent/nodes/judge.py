@@ -35,7 +35,17 @@ def _run_smart_fallback(state: AgentState, config: AgentConfig) -> AgentState:
 
     emotion = state.get("emotion", 0.0)
     traits = state.get("traits", config.traits)
-    if category in ("flirt", "praise"):
+    if category == "creative_task":
+        if emotion >= 0.5:
+            chosen_strategy = random.choice(["deflect", "excuse"])
+        elif traits.get("tsundere", 0.0) >= 0.6:
+            chosen_strategy = "deflect"
+        elif traits.get("excuse_prone", 0.0) >= 0.5:
+            chosen_strategy = "excuse"
+        else:
+            chosen_strategy = "avoid"
+        strategy["strategy"] = chosen_strategy
+    elif category in ("flirt", "praise"):
         if emotion >= 0.55 and random.random() < 0.45:
             chosen_strategy = "emotion_burst"
         elif traits.get("perfectionist", 0.0) >= 0.25 and random.random() < 0.25:

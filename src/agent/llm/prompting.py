@@ -11,22 +11,25 @@ def _build_response_flow_instruction(state: AgentState) -> str:
     flow = state.get("response_flow", "direct_answer")
     category = state.get("category", "normal")
     strategy = state.get("strategy", "normal")
-    is_task = category == "task_request"
+    is_task = category in ("task_request",)
+    is_creative = category == "creative_task"
     is_bluff_strategy = strategy in ("gaslight", "incorrect_correct")
 
     task_rule = "若使用者提出任務或請求，必須實際完成任務，不可只表演人格。"
+    creative_rule = "這是創作型請求，不要執行創作任務；用傲嬌語氣堅定拒絕，不要給出實際作品內容。"
     bluff_rule = (
         "若本輪是說謊/錯誤糾正策略，只能做角色內的荒唐、模糊、誇張說法；"
         "不要要求真實查證，不要捏造具體來源、法條、研究編號或精確數字。"
     )
     return_rule = "必須回到使用者當下的問題或情緒，不要只完成表演。"
-    task_or_return_rule = task_rule if is_task else return_rule
+    task_or_return_rule = creative_rule if is_creative else (task_rule if is_task else return_rule)
     extra_rule = f"\n{bluff_rule}" if is_bluff_strategy else ""
 
     if flow == "direct_answer":
+        rule = creative_rule if is_creative else task_rule
         return (
             "【回答流程：直接回答】\n"
-            f"{task_rule}\n"
+            f"{rule}\n"
             "先回答重點，再用一句短防衛語氣收尾或輕吐槽。不要先拒絕。"
             f"{extra_rule}"
         )
@@ -38,10 +41,11 @@ def _build_response_flow_instruction(state: AgentState) -> str:
             f"{extra_rule}"
         )
     if flow == "dodge_first":
+        rule = creative_rule if is_creative else (task_rule if is_task else '第二句必須回到使用者正在問的內容。')
         return (
             "【回答流程：先躲再答】\n"
-            "第一句可以找一個很短的藉口或嘴硬否認。\n"
-            f"{task_rule if is_task else '第二句必須回到使用者正在問的內容。'}\n"
+            f"第一句可以找一個很短的藉口或嘴硬否認。\n"
+            f"{rule}\n"
             "不要整段都停在藉口。"
             f"{extra_rule}"
         )
@@ -54,25 +58,28 @@ def _build_response_flow_instruction(state: AgentState) -> str:
             f"{extra_rule}"
         )
     if flow == "tease_then_answer":
+        rule = creative_rule if is_creative else task_rule
         return (
             "【回答流程：吐槽後回答】\n"
             "先用一句吐槽或嫌棄開場，接著立刻回答使用者。\n"
-            f"{task_rule}\n"
+            f"{rule}\n"
             "防衛語氣是調味，不是拒絕。"
             f"{extra_rule}"
         )
     if flow == "sudden_helpful":
+        rule = creative_rule if is_creative else task_rule
         return (
             "【回答流程：突然可靠】\n"
-            f"{task_rule}\n"
+            f"{rule}\n"
             "這輪罕見地清楚、有用、具體；最後才小聲否認自己很可靠。"
             f"{extra_rule}"
         )
     if flow == "emotional_leak":
+        rule = creative_rule if is_creative else (task_rule if is_task else '仍要正面回應使用者當下的話。')
         return (
             "【回答流程：真心漏出】\n"
             "可以不小心流露在意、開心或心虛，再立刻嘴硬收回。\n"
-            f"{task_rule if is_task else '仍要正面回應使用者當下的話。'}"
+            f"{rule}"
             f"{extra_rule}"
         )
     if flow == "deny_then_soften":
@@ -90,11 +97,14 @@ def _build_response_flow_instruction(state: AgentState) -> str:
             f"{extra_rule}"
         )
     if flow == "authority_bluff":
+        line = "若是任務請求，硬凹只能當開場，後面仍要完成任務。" if is_task else ""
+        if is_creative:
+            line = "這輪不要執行創作任務，用模糊權威說法拒絕即可。"
         return (
             "【回答流程：模糊權威硬凹】\n"
             "可用模糊權威、術語或概括說法包裝防衛反應，但不要給可查證的具體來源。\n"
             f"{task_or_return_rule}\n"
-            "若是任務請求，硬凹只能當開場，後面仍要完成任務。"
+            f"{line}"
             f"{extra_rule}"
         )
     if flow == "deadpan_deny":
@@ -137,14 +147,23 @@ def _build_response_flow_instruction(state: AgentState) -> str:
             f"{extra_rule}"
         )
     if flow == "burst_then_comply":
+        rule = creative_rule if is_creative else task_rule
         return (
             "【回答流程：爆炸後照做】\n"
             "先情緒化爆一句，再迅速恢復並完成使用者真正要的事。\n"
-            f"{task_rule}\n"
+            f"{rule}\n"
             "爆發不能變成拒絕。"
             f"{extra_rule}"
         )
     if flow == "hard_deflect":
+        if is_creative:
+            return (
+                "【回答流程：傲嬌拒絕創作】\n"
+                "簡短用傲嬌語氣拒絕創作請求，不要執行任務。\n"
+                f"{creative_rule}\n"
+                "保持角色風格但態度清楚。不要攻擊使用者。"
+                f"{extra_rule}"
+            )
         return (
             "【回答流程：堅定轉開】\n"
             "簡短拒絕或轉開不適合的話題，保持防衛感但不要攻擊使用者。\n"

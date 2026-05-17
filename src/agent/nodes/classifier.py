@@ -41,6 +41,13 @@ def classify_input(state: AgentState, config: AgentConfig) -> AgentState:
                 break
 
     if category == "normal":
+        for kw in config.creative_task_keywords:
+            if kw in text:
+                category = "creative_task"
+                trigger = kw
+                break
+
+    if category == "normal":
         for kw in config.task_request_keywords:
             if kw in text:
                 category = "task_request"

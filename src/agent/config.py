@@ -89,6 +89,17 @@ DEFAULT_FLIRT_KEYWORDS = [
     "反將", "被你",
 ]
 
+DEFAULT_CREATIVE_TASK_KEYWORDS = [
+    "寫詩", "寫首詩", "寫一首", "作一首", "一首詩",
+    "寫故事", "寫個故事", "寫一篇", "寫一篇文章",
+    "創作", "作曲", "作詞", "作畫", "畫一幅",
+    "寫歌", "寫小說", "寫文章", "寫劇本",
+    "翻譯", "幫我翻", "翻成",
+    "做一首", "寫程式", "寫code", "寫個程式",
+    "劇本", "文案", "小說",
+    "畫畫", "寫個詩", "編一首",
+]
+
 
 @dataclass
 class AgentConfig:
@@ -106,6 +117,9 @@ class AgentConfig:
     )
     flirt_keywords: List[str] = field(
         default_factory=lambda: DEFAULT_FLIRT_KEYWORDS.copy()
+    )
+    creative_task_keywords: List[str] = field(
+        default_factory=lambda: DEFAULT_CREATIVE_TASK_KEYWORDS.copy()
     )
     emotion_bounds: Tuple[float, float] = (-1.0, 1.0)
     emotion_decay: float = 0.03

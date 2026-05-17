@@ -4,7 +4,7 @@ from typing import Dict, List, Literal, TypedDict
 
 from agent.config import AgentConfig
 
-Category = Literal["normal", "negative_feedback", "sensitive_topic", "task_request", "questioning", "praise", "flirt"]
+Category = Literal["normal", "negative_feedback", "sensitive_topic", "task_request", "creative_task", "questioning", "praise", "flirt"]
 ResponseLength = Literal["short", "medium", "long", "long_long"]
 ResponseFlow = Literal[
     "direct_answer",

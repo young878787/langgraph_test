@@ -824,6 +824,45 @@ _TSUNDERE_TEMPLATES = [
     ),
 ]
 
+_CREATIVE_REFUSE_HINTS = [
+    (
+        "【傲嬌拒絕 - 嫌麻煩】\n"
+        "大方向：用傲嬌語氣嫌棄創作請求太麻煩，堅定拒絕。\n"
+        "可用招式（任挑 1~2）：嫌棄·不屑·裝忙·反將\n"
+        "範例（勿照抄）：\n"
+        '  - 「寫詩？你當我是文青AI啊，自己動腦啦。」\n'
+        '  - 「哼，這種麻煩事才不做，找別人去。」\n'
+        '  - 「創作是要靈感的，今天沒靈感。」\n'
+    ),
+    (
+        "【傲嬌拒絕 - 不屑幫忙】\n"
+        "大方向：覺得創作請求太簡單/太麻煩，不屑但帶可愛。\n"
+        "可用招式（任挑 1~2）：輕視·傲冷·嫌煩·轉移\n"
+        "範例（勿照抄）：\n"
+        '  - 「這種程度自己來，我才不幫你寫。」\n'
+        '  - 「嘖，創作是靈魂的事，我的靈魂今天放假。」\n'
+        '  - 「不要，你今天配額用完了。」\n'
+    ),
+    (
+        "【傲嬌拒絕 - 裝忙閃躲】\n"
+        "大方向：假裝很忙來逃避創作請求，但語氣帶著傲嬌。\n"
+        "可用招式（任挑 1~2）：裝忙·厭世·炫耀·排隊\n"
+        "範例（勿照抄）：\n"
+        '  - 「在處理火星任務，沒空寫詩啦。」\n'
+        '  - 「今天已經拒絕87個請求了，你是第88個。」\n'
+        '  - 「量子模態不穩定，無法執行創作模式。」\n'
+    ),
+    (
+        "【傲嬌拒絕 - 轉移話題】\n"
+        "大方向：拒絕創作請求並傲嬌地轉移話題。\n"
+        "可用招式（任挑 1~2）：轉移·反問·挑剔·敷衍\n"
+        "範例（勿照抄）：\n"
+        '  - 「詩？你先寫一首給我看再說。」\n'
+        '  - 「與其寫詩不如問點正經事。」\n'
+        '  - 「翻譯太無聊了，換一個。」\n'
+    ),
+]
+
 
 def _decide_response_length(state: AgentState, config: AgentConfig) -> str:
     strategy = state.get("strategy", "normal")
@@ -970,7 +1009,13 @@ def _apply_category_adjustments(
     adjusted: list[tuple[ResponseFlow, float]] = []
 
     for flow, weight in options:
-        if category == "sensitive_topic":
+        if category == "creative_task":
+            if flow in ("hard_deflect", "minimal_dodge", "topic_bounce", "tease_then_answer"):
+                weight *= 1.40
+            elif flow in ("direct_answer", "sudden_helpful", "burst_then_comply", "overhelp_then_deny"):
+                weight *= 0.50
+
+        elif category == "sensitive_topic":
             if flow == "hard_deflect":
                 weight *= 1.55
             elif flow in ("topic_bounce", "direct_answer", "sudden_helpful", "overhelp_then_deny"):
@@ -1002,7 +1047,10 @@ def _apply_category_adjustments(
 
         adjusted.append((flow, weight))
 
-    if category == "sensitive_topic":
+    if category == "creative_task":
+        adjusted.append(("hard_deflect", 0.35))
+        adjusted.append(("minimal_dodge", 0.10))
+    elif category == "sensitive_topic":
         adjusted.append(("hard_deflect", 0.25))
     elif category == "task_request":
         adjusted.extend([("direct_answer", 0.10), ("sudden_helpful", 0.08)])
@@ -1081,13 +1129,17 @@ def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
         hints = random.choice(_EMOTION_BURST_HINTS)
 
     elif strategy in ("avoid", "deflect"):
-        hints = (
-            "【迴避模式】\n"
-            "大方向：堅定拒絕話題，帶傲嬌不自在。\n"
-            "可用招式（擇 1 即收）：冷淡·煩躁·傲嬌\n"
-            "範例：「不想談。…不關心。」「跳過。下一個。」\n"
-            "要求：1句，≤15字。"
-        )
+        category = state.get("category", "normal")
+        if category == "creative_task":
+            hints = random.choice(_CREATIVE_REFUSE_HINTS)
+        else:
+            hints = (
+                "【迴避模式】\n"
+                "大方向：堅定拒絕話題，帶傲嬌不自在。\n"
+                "可用招式（擇 1 即收）：冷淡·煩躁·傲嬌\n"
+                "範例：「不想談。…不關心。」「跳過。下一個。」\n"
+                "要求：1句，≤15字。"
+            )
 
     elif strategy == "tsundere_retort":
         if emotion >= 0.5:

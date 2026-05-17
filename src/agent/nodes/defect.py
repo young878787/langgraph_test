@@ -53,7 +53,19 @@ def decide_defect_strategy(state: AgentState, config: AgentConfig) -> AgentState
 
     emotion_low = emotion < -0.3
 
-    if category == "sensitive_topic":
+    if category == "creative_task":
+        if emotion >= 0.5:
+            strategy = random.choice(["deflect", "excuse"])
+        elif tsundere >= 0.6 and random.random() < 0.7:
+            strategy = "deflect"
+        elif excuse_prone >= 0.5 and random.random() < 0.5:
+            strategy = "excuse"
+        elif rambler >= 0.5 and random.random() < 0.4:
+            strategy = "nonsense"
+        else:
+            strategy = "avoid"
+
+    elif category == "sensitive_topic":
         if tsundere >= 0.7 and emotion >= 0.3 and random.random() < 0.4:
             strategy = "tsundere_retort"
         elif emotion >= 0.5:
@@ -81,6 +93,10 @@ def decide_defect_strategy(state: AgentState, config: AgentConfig) -> AgentState
     elif category == "task_request":
         if burst_pending:
             strategy = "emotion_burst"
+        elif overthinker >= 0.6 and random.random() < 0.15:
+            strategy = "over_associate"
+        elif rambler >= 0.5 and random.random() < 0.12:
+            strategy = "nonsense"
         elif contradict_prone >= 0.5 and random.random() < contradict_prone:
             strategy = "self_contradict"
         elif excuse_prone >= 0.5 and random.random() < excuse_prone:
