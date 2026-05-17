@@ -50,8 +50,10 @@ Thumbs.db
 # Agent specific (if they contain temporary data)
 .agent/
 .agents/
+AGENTS.md
+Agent.md
 skills-lock.json
-
+*.AGENTS.md
 # Logs
 *.log
 logs/*.md

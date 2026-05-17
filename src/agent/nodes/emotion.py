@@ -19,6 +19,12 @@ DELTA_MAP = {
 TSUNDERE_BONUS = 0.15
 BURST_BONUS = 0.30
 BASE_DECAY = 0.03
+AFFECTION_BONUS = 0.24
+AFFECTION_DECAY_FLOOR = 0.25
+HIGH_EMOTION_THRESHOLD = 0.70
+HIGH_EMOTION_POSITIVE_SCALE = 0.45
+NORMAL_COOLDOWN_STEP = 0.5
+NORMAL_COOLDOWN_CAP = 4
 
 
 def update_emotion(state: AgentState, config: AgentConfig) -> AgentState:
@@ -31,8 +37,15 @@ def update_emotion(state: AgentState, config: AgentConfig) -> AgentState:
     traits = state.get("traits", config.traits)
     burst_pending = state.get("burst_pending", False)
     turn_count = state.get("turn_count", 0)
+    last_category = state.get("last_category", "normal")
+    consecutive_same = state.get("consecutive_same_category", 1)
+    if category == last_category:
+        consecutive_same += 1
+    else:
+        consecutive_same = 1
 
-    decay = BASE_DECAY * (1.0 + turn_count / 10.0)
+    base_decay = state.get("emotion_decay", config.emotion_decay or BASE_DECAY)
+    decay = base_decay * (1.0 + turn_count / 10.0)
 
     if category == "negative_feedback" and traits.get("tsundere", 0.0) >= 0.7:
         delta += TSUNDERE_BONUS
@@ -41,10 +54,12 @@ def update_emotion(state: AgentState, config: AgentConfig) -> AgentState:
         delta += BURST_BONUS
 
     if category in ("praise", "flirt"):
-        delta += 0.30
-        decay *= 0.5
+        positive_room = max(0.0, 1.0 - max(emotion, 0.0))
+        affection_scale = max(AFFECTION_DECAY_FLOOR, positive_room)
+        delta += AFFECTION_BONUS * affection_scale
+        decay *= 0.8
 
-    if strategy == "tsundere_retort":
+    if strategy == "tsundere_retort" and category not in ("praise", "flirt"):
         delta += 0.1
     elif strategy == "excuse":
         delta -= 0.05
@@ -61,14 +76,15 @@ def update_emotion(state: AgentState, config: AgentConfig) -> AgentState:
     elif strategy == "emotion_burst":
         delta += 0.2
 
-    last_category = state.get("last_category", "normal")
-    consecutive_same = state.get("consecutive_same_category", 1)
-    if category == last_category:
-        consecutive_same += 1
-    else:
-        consecutive_same = 1
     adaptation = 1.0 / (1.0 + (consecutive_same - 1) * 0.3)
     delta *= adaptation
+
+    if category == "normal" and consecutive_same > 1 and turn_count > 1:
+        cooldown_steps = min(consecutive_same - 1, NORMAL_COOLDOWN_CAP)
+        decay += base_decay * NORMAL_COOLDOWN_STEP * cooldown_steps
+
+    if emotion > HIGH_EMOTION_THRESHOLD and delta > 0:
+        delta *= HIGH_EMOTION_POSITIVE_SCALE
 
     jitter = random.uniform(-config.emotion_jitter, config.emotion_jitter)
 
