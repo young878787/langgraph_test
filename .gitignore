@@ -54,4 +54,5 @@ skills-lock.json
 
 # Logs
 *.log
+logs/*.md
 
