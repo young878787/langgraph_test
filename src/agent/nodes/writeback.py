@@ -4,6 +4,7 @@ import threading
 
 from agent.llm.output_parser import smart_truncate
 from agent.state import AgentState
+from agent.task_status import build_task_status, format_task_status_for_summary
 
 
 def _build_summary_prompt(messages: list[dict], existing_summary: str) -> str:
@@ -137,6 +138,7 @@ def writeback(state: AgentState) -> AgentState:
 
     # ── Step 5: 生成輕量狀態摘要（純狀態追蹤，不含對話內容） ──
     turn_count = state.get("turn_count", 0) + 1
+    last_task_status = build_task_status(state, turn_count)
 
     last_topic = ""
     if conversation_history and memory_enabled:
@@ -150,6 +152,9 @@ def writeback(state: AgentState) -> AgentState:
         status_flags.append("gaslight")
     if strategy == "emotion_burst":
         status_flags.append("burst")
+    task_status_summary = format_task_status_for_summary(last_task_status)
+    if task_status_summary:
+        status_flags.append(task_status_summary)
     if last_topic:
         status_flags.append(f"topic:{last_topic}")
 
@@ -172,6 +177,7 @@ def writeback(state: AgentState) -> AgentState:
         "turn_count": turn_count,
         "long_term_memory": long_term_memory,
         "pending_summary": pending_summary,
+        "last_task_status": last_task_status,
     }
 
     if "system_prompt" in state:

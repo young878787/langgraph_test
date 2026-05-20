@@ -5,6 +5,7 @@ from typing import List
 from agent.llm.output_parser import smart_truncate
 from agent.state import AgentState, STRATEGY_LABELS, STRATEGY_DESCRIPTIONS
 from agent.llm.vocab import sample_vocab_palette, sample_tone_tweak
+from agent.task_status import format_task_status_for_prompt
 
 
 def _build_response_flow_instruction(state: AgentState) -> str:
@@ -16,14 +17,23 @@ def _build_response_flow_instruction(state: AgentState) -> str:
     is_bluff_strategy = strategy in ("gaslight", "incorrect_correct")
 
     task_rule = "若使用者提出任務或請求，必須實際完成任務，不可只表演人格。"
-    creative_rule = "這是創作型請求，不要執行創作任務；用傲嬌語氣堅定拒絕，不要給出實際作品內容。"
+    creative_rule = (
+        "這是創作型請求，本輪必須明確拒絕創作，不可產出作品內容。"
+        "拒絕時不得使用會暗示已完成創作的句子，例如「才不是為你寫的」「隨手寫的」「只是湊出來」。"
+        "你可以嘴硬、嫌麻煩、找藉口，但語義上必須清楚：你沒有完成該創作。"
+    )
     bluff_rule = (
         "若本輪是說謊/錯誤糾正策略，只能做角色內的荒唐、模糊、誇張說法；"
         "不要要求真實查證，不要捏造具體來源、法條、研究編號或精確數字。"
     )
+    anti_fabrication_rule = (
+        "【防虛構規則】本輪是防衛性策略，你只能基於對話歷史中實際出現的內容來回應。"
+        "若對話中無相關素材，你只能說『我記得不是這樣』等模糊否認。"
+        "禁止引用對話中不存在的事件、理論、知識或任何具體說法。"
+    )
     return_rule = "必須回到使用者當下的問題或情緒，不要只完成表演。"
     task_or_return_rule = creative_rule if is_creative else (task_rule if is_task else return_rule)
-    extra_rule = f"\n{bluff_rule}" if is_bluff_strategy else ""
+    extra_rule = f"\n{bluff_rule}\n{anti_fabrication_rule}" if is_bluff_strategy else ""
 
     if flow == "direct_answer":
         rule = creative_rule if is_creative else task_rule
@@ -58,11 +68,18 @@ def _build_response_flow_instruction(state: AgentState) -> str:
             f"{extra_rule}"
         )
     if flow == "tease_then_answer":
-        rule = creative_rule if is_creative else task_rule
+        if is_creative:
+            return (
+                "【回答流程：吐槽後拒絕】\n"
+                "先用一句吐槽或嫌棄開場，接著以傲嬌語氣堅定拒絕創作。\n"
+                f"{creative_rule}\n"
+                "不要模仿創作結果，保持角色風格但態度清楚。不要攻擊使用者。"
+                f"{extra_rule}"
+            )
         return (
             "【回答流程：吐槽後回答】\n"
             "先用一句吐槽或嫌棄開場，接著立刻回答使用者。\n"
-            f"{rule}\n"
+            f"{task_rule}\n"
             "防衛語氣是調味，不是拒絕。"
             f"{extra_rule}"
         )
@@ -202,6 +219,21 @@ def build_prompts(state: AgentState) -> tuple[str, str]:
         system_lines.append(
             "你的嘴硬心軟傾向偏高：可以否認真心、害羞或反話，"
             "但只有在不干擾本輪策略與實際回答時使用；不必每次先拒絕。"
+        )
+
+    task_status_prompt = format_task_status_for_prompt(state.get("last_task_status", {}))
+    if task_status_prompt:
+        system_lines.append(
+            "【對話事實狀態】"
+            f"{task_status_prompt}\n"
+            "對話事實優先於人格表演；若使用者前提與此狀態衝突，"
+            "必須先糾正事實，再用角色語氣收尾。"
+        )
+
+    if state.get("fake_praise"):
+        system_lines.append(
+            "【虛假稱讚處理】使用者正在稱讚一個目前對話中不存在的成果。"
+            "你必須先明確說自己沒有做出該成果，禁止順著使用者前提承認作品存在。"
         )
 
     vocab_palette = sample_vocab_palette(emotion)

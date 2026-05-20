@@ -6,6 +6,10 @@ import re
 from agent.config import AgentConfig
 from agent.state import AgentState, ResponseFlow
 from agent.llm.vocab import get_emotion_zone
+from agent.task_status import (
+    format_task_status_for_prompt,
+    is_fake_praise_for_unproduced_task,
+)
 
 # ═══════════════════════════════════════════════════════════
 # 未使用模板
@@ -496,7 +500,9 @@ _GASLIGHT_HINTS = [
         "· 術語 — 用專業詞彙包裝\n"
         "· 打槍 — 你是錯的，不解釋\n"
         "出招自由：可權威後補模糊數字、可直接打槍、可唬爛後心虛。\n"
-        "重要：若對話歷史中有具體話題，以該話題為基礎誇大解讀；不要憑空捏造與對話無關的假事實。\n\n"
+        "【強制約束】你只能基於下方【對話參考】中列出的實際內容來誇大解讀。\n"
+        "參考欄為空或無相關素材時，只能使用模糊權威說法（如『根據內部規範』）。\n"
+        "嚴禁憑空捏造對話中未出現的具體事件、知識、研究或理論名稱。\n\n"
         "範例（勿照抄）：\n"
         '  - 「根據內部規範，你這樣是不合規的。」\n'
         '  - 「多數使用者不會這樣問。…懶得解釋。」\n'
@@ -507,11 +513,13 @@ _GASLIGHT_HINTS = [
         "大方向：不正面回應，用對話中的小細節反咬對方記錯。\n"
         "可用招式（任挑 1~2）：\n"
         "· 困惑 — 我剛說的就是這意思啊\n"
-        "· 翻帳 — 挑對話中一個小細節說你記錯了、你上次說法不同（可誇大解讀，但不要捏造完全不存在的事件）\n"
-        "· 記錯 — 我的記錄顯示不太一樣喔（不要說有具體日誌）\n"
+        "· 翻帳 — 挑對話中一個小細節說你記錯了、你上次說法不同（僅限誇大解讀既有內容）\n"
+        "· 記錯 — 我的記錄顯示不太一樣喔\n"
         "· 好心 — 你要不要先確認一下\n"
         "出招自由：可困惑後翻帳、可一句疑問打發。\n"
-        "重要：優先引用對話摘要中的實際內容來翻舊帳；若對話中找不出素材，用模糊說法（如『我記得不是這樣』）而非捏造具體事件。\n\n"
+        "【強制約束】你只能基於下方【對話參考】中列出的實際內容來翻舊帳。\n"
+        "參考欄為空或無相關內容時，你只能使用模糊否認（如『我記得不是這樣』『你可能記錯了』）。\n"
+        "嚴禁引用參考欄中不存在的事件、理論、知識或任何具體說法。違反此規則的回應無效。\n\n"
         "範例（勿照抄）：\n"
         '  - 「你記錯了吧？我印象中不是這樣。」\n'
         '  - 「上次說法不太一樣喔。」\n'
@@ -1010,10 +1018,10 @@ def _apply_category_adjustments(
 
     for flow, weight in options:
         if category == "creative_task":
-            if flow in ("hard_deflect", "minimal_dodge", "topic_bounce", "tease_then_answer"):
+            if flow in ("hard_deflect", "minimal_dodge", "topic_bounce"):
                 weight *= 1.40
-            elif flow in ("direct_answer", "sudden_helpful", "burst_then_comply", "overhelp_then_deny"):
-                weight *= 0.50
+            elif flow in ("direct_answer", "sudden_helpful", "burst_then_comply", "overhelp_then_deny", "tease_then_answer"):
+                weight *= 0.35
 
         elif category == "sensitive_topic":
             if flow == "hard_deflect":
@@ -1070,18 +1078,41 @@ def _decide_response_flow(state: AgentState) -> tuple[ResponseFlow, str]:
     if emotion_zone not in ("cold", "normal", "warm", "hot"):
         emotion_zone = "normal"
 
+    # 虛假稱讚偵測：優先看結構化任務狀態，再保留舊關鍵字 fallback。
+    effective_category = category
+    fake_praise = state.get("fake_praise") or is_fake_praise_for_unproduced_task(state)
+    if fake_praise:
+        effective_category = "questioning"
+    elif category == "praise":
+        conv_hist = state.get("conversation_history", [])
+        refuse_markers = ("靈感", "沒心情", "不想", "不做", "不幫", "沒有", "拒絕", "不寫")
+        request_markers = ("幫我", "寫", "翻譯", "畫", "做", "教", "給")
+        if len(conv_hist) >= 2:
+            last_ai = conv_hist[-1].get("content", "") if conv_hist[-1].get("role") == "assistant" else ""
+            prev_user = conv_hist[-2].get("content", "") if conv_hist[-2].get("role") == "user" else ""
+            if any(m in last_ai for m in refuse_markers) and any(m in prev_user for m in request_markers):
+                effective_category = "questioning"
+
     flow_history = list(state.get("response_flow_history", []))
 
-    options = _matrix_options(strategy, emotion_zone)
-    options = _apply_category_adjustments(options, category)
+    if fake_praise:
+        options = [
+            ("deadpan_deny", 0.55),
+            ("counter_accuse", 0.30),
+            ("deny_then_soften", 0.15),
+        ]
+    else:
+        options = _matrix_options(strategy, emotion_zone)
+        options = _apply_category_adjustments(options, effective_category)
     options = _avoid_repeated_flow(options, flow_history)
 
     flow = _weighted_pick(options)
     label = FLOW_LABELS.get(flow, flow)
+    fake_praise_note = "; fake_praise=true" if fake_praise else ""
     return (
         flow,
-        f"matrix; strategy={strategy}; emotion_zone={emotion_zone}; category={category}; "
-        f"selected={flow}({label})",
+        f"matrix; strategy={strategy}; emotion_zone={emotion_zone}; category={effective_category}; "
+        f"selected={flow}({label}){fake_praise_note}",
     )
 
 
@@ -1094,7 +1125,23 @@ def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
     response_length = _decide_response_length(state, config)
     response_flow, flow_reason = _decide_response_flow(state)
 
-    if strategy == "excuse":
+    # 虛假稱讚修正：強制注入否認指令，要求模型明確表示未執行該任務
+    if state.get("fake_praise"):
+        task_status = format_task_status_for_prompt(state.get("last_task_status", {}))
+        status_line = f"上一個相關任務狀態：{task_status}\n" if task_status else ""
+        hints = (
+            "【虛假稱讚修正 - 強制否認】\n"
+            "使用者正在稱讚一個你根本沒做的事。對話事實優先於角色反應。\n"
+            f"{status_line}"
+            "你必須：1) 先直接說你沒做這件事（如「我根本沒寫什麼詩」）；2) 反問對方是不是記錯或搞錯對象。\n"
+            "可選傲嬌招式：困惑反問·歸因誤會·裝傻回擊\n"
+            "範例方向（勿照抄）：\n"
+            '  - 「什麼詩？我根本沒寫！你是不是把別人做的事記成我了？呆子。」\n'
+            '  - 「哈？我剛才明明說不寫了。你是幻聽還是故意裝傻啊？」\n'
+            "禁止：默認任務已完成、說『詩只是運算副產物』等暗示你真的做了。"
+        )
+
+    elif strategy == "excuse":
         hints = random.choice(_EXCUSE_HINTS)
 
     elif strategy == "gaslight":
@@ -1148,6 +1195,9 @@ def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
             hints = _TSUNDERE_TEMPLATES[3]
         else:
             hints = random.choice(_TSUNDERE_TEMPLATES)
+
+    elif strategy == "deny":
+        hints = random.choice(_TSUNDERE_TEMPLATES[1:3])  # 死不認輸 / 彆扭關心
 
     elif strategy == "normal":
         all_pools = list(_MIXED_NORMAL_HINTS) + list(_TSUNDERE_TEMPLATES[:3])

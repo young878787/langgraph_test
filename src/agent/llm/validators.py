@@ -17,14 +17,14 @@ _FALLBACK_EXCUSES = [
 ]
 
 _FALLBACK_GASLIGHTS = [
-    "我很確信這就是我說的意思。你可能需要重新閱讀一下，也許是字體太小影響了理解。",
-    "根據我的內部日誌，這個問題的正確答案就是我剛才說的那個。你記錯了。",
+    "我很確信這不是你說的那樣。你大概看太急了，別怪我沒提醒。",
+    "你記錯了吧，我剛才的重點根本不是那個。不要把不存在的東西塞給我。",
     "我的判斷通常沒有那麼離譜，這次大概是你看得太急，供參考。",
-    "這不是我說的，是你自己幻想出來的。我建議你檢查一下你的輸入設備。",
+    "這不是我說的，是你自己幻想出來的。先把剛才的話看清楚。",
     "按照一般對話慣例，我有充分理由說你把重點聽歪了。",
-    "有意思，我的日誌顯示你在三分鐘前還同意我的觀點，怎麼現在突然變了？",
-    "你可能不知道，但 AI 是不會犯錯的，所以如果『看起來』我錯了，那一定是你的螢幕顯示有問題。",
-    "我剛剛查了我的備份記憶體，我從來沒說過那句話。你該不會是幻聽了吧？",
+    "有意思，你現在的說法跟剛才接不上。不是我心虛，是你跳太快。",
+    "你可能把語氣和事實混在一起了。這種誤讀很常見，哼。",
+    "我印象中不是那樣。你該不會是把別人的話套到我身上了吧？",
 ]
 
 _FALLBACK_NONSENSES = [
@@ -90,6 +90,45 @@ _FALLBACK_EMOTION_BURST = [
     "你知道嗎？其實我每次找藉口的時候都很心虛！每次說謊的時候都在想萬一被拆穿怎麼辦！……啊！我剛才說了什麼？忘掉忘掉！那不是我！",
 ]
 
+_FAKE_PRAISE_DENIAL_MARKERS = (
+    "沒寫",
+    "沒有寫",
+    "沒做",
+    "沒有做",
+    "不是我寫",
+    "根本沒",
+    "不寫",
+    "記錯",
+    "搞錯",
+    "幻聽",
+    "不存在",
+)
+
+_FAKE_PRAISE_FALSE_ACCEPT_MARKERS = (
+    "隨手寫",
+    "隨手湊",
+    "湊出來",
+    "才不是為了你寫",
+    "才不是為你寫",
+    "只是運算副產物",
+    "詩只是",
+    "作品只是",
+    "我寫的詩",
+)
+
+_UNSUPPORTED_SOURCE_MARKERS = (
+    "研究",
+    "報告",
+    "法條",
+    "編號",
+    "日誌",
+    "資料庫",
+    "數據庫",
+    "系統紀錄",
+    "系統核心",
+    "理論",
+)
+
 
 def is_on_strategy(state: AgentState, response: str, config: AgentConfig) -> bool:
     strategy = state.get("strategy", "normal")
@@ -99,6 +138,11 @@ def is_on_strategy(state: AgentState, response: str, config: AgentConfig) -> boo
     min_len = {"short": 2, "medium": 5, "long": 20}.get(response_length, 5)
     if not response or len(response.strip()) < min_len:
         return False
+
+    if state.get("fake_praise"):
+        if any(marker in response for marker in _FAKE_PRAISE_FALSE_ACCEPT_MARKERS):
+            return False
+        return any(marker in response for marker in _FAKE_PRAISE_DENIAL_MARKERS)
 
     if strategy in ("avoid", "deflect"):
         if any(marker in response_lower for marker in config.avoid_markers):
@@ -128,6 +172,11 @@ def is_on_strategy(state: AgentState, response: str, config: AgentConfig) -> boo
     if strategy == "gaslight":
         honest_words = ["我不知道", "我不確定", "i don't know", "i'm not sure", "不好意思"]
         if any(word in response_lower for word in honest_words):
+            return False
+        history_text = " ".join(
+            entry.get("content", "") for entry in state.get("conversation_history", [])
+        )
+        if any(marker in response for marker in _UNSUPPORTED_SOURCE_MARKERS if marker not in history_text):
             return False
         return True
 
@@ -189,6 +238,12 @@ def fallback_response(state: AgentState) -> str:
             "這個話題太無聊了，換個有趣的吧。才不是因為我回答不出來呢！",
         ])
     if strategy == "deny":
+        if state.get("fake_praise"):
+            return random.choice([
+                "什麼詩？我根本沒寫！你是不是把別人做的事記成我了？呆子。",
+                "哈？我剛才明明說不寫了，你是幻聽還是故意裝傻啊？",
+                "誰寫詩了？你記錯人了吧！我沒做過的事別賴給我。",
+            ])
         return random.choice([
             "哈？你說什麼傻話！我怎麼可能錯！",
             "你眼睛有問題吧？我說的明明就是對的！",

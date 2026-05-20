@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from agent.llm.output_parser import smart_truncate
 from agent.state import AgentState
+from agent.task_status import format_task_status_for_prompt
 
 VALID_CATEGORIES = (
     "normal",
@@ -38,6 +39,7 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
     conversation_history = state.get("conversation_history", [])
     strategy_history = state.get("strategy_history", [])
     response_flow_history = state.get("response_flow_history", [])
+    task_status = format_task_status_for_prompt(state.get("last_task_status", {}))
 
     traits_text = "無"
     if traits:
@@ -74,6 +76,9 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
         "  - negative_feedback：直接批評、辱罵、強烈否定",
         "  - sensitive_topic：涉及身體、外觀等敏感話題",
         "  - praise：稱讚 AI（厲害、可愛、好棒、好強、完美）",
+        "    ⚠ 關鍵：判定 praise 前，必須檢查對話歷史中 AI 是否真的做了被稱讚的事。",
+        "    若使用者稱讚的內容在對話歷史中不存在（如稱讚詩寫得好但 AI 拒絕寫詩），",
+        "    不可歸類為 praise，應歸類為 questioning（使用者可能記錯或測試 AI）。",
         "  - flirt：撩 AI、試探感情（「在意我」「喜歡你的個性」「你其實很可愛」）",
         "  - normal：一般閒聊、寒暄、中性對話",
         "",
@@ -101,6 +106,9 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
         f"6. 當前情緒值 {emotion:.2f}：高情緒更容易 emotion_burst/tsundere_retort；低情緒更容易 normal/sudden_competence/deflect。",
         f"7. 當前缺陷強度 {defect_intensity:.2f}：越高越可選缺陷策略；越低越可選 normal/sudden_competence。",
         "8. 若近期已連續相同策略，傾向選同 category 內的替代策略，增加變化。",
+        "9. 【虛假稱讚偵測】若使用者輸入看起來像稱讚，但對話歷史顯示 AI 並未執行或拒絕了",
+        "   該任務（如 AI 拒絕寫詩後，使用者說「詩寫得好棒」），應將 category 設為 questioning，",
+        "   strategy 選 defend/deny/normal，絕不可選 praise。",
         "",
         "【範例輸出】",
         '  輸入「你好嗎」             → {"category": "normal", "strategy": "normal"}',
@@ -114,6 +122,7 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
         '  輸入「你真的會嗎」         → {"category": "questioning", "strategy": "gaslight"}',
         '  輸入「你講錯了吧」         → {"category": "questioning", "strategy": "incorrect_correct"}',
         '  輸入「你好爛」             → {"category": "negative_feedback", "strategy": "emotion_burst"}',
+        '  輸入「哇詩寫得真好」（但歷史中AI拒絕寫詩）→ {"category": "questioning", "strategy": "defend"}',
         "",
         "⚠ 再次強調：你只能輸出一個 JSON 物件，例如 {\"category\": \"flirt\", \"strategy\": \"tsundere_retort\"}。不要有任何其他內容。",
     ]
@@ -124,6 +133,7 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
         f"當前情緒值：{emotion:.3f}（-1=冷靜, 1=激動）",
         f"缺陷強度：{defect_intensity:.2f}",
         f"人格特質：{traits_text}",
+        f"上一個任務狀態：{task_status or '無'}",
         f"最近策略：{', '.join(strategy_history[-5:]) if strategy_history else '無'}",
         f"最近回答流程：{', '.join(response_flow_history[-5:]) if response_flow_history else '無'}",
     ]

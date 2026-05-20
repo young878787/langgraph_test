@@ -10,6 +10,7 @@ from agent.llm.providers import get_provider
 from agent.nodes.classifier import classify_input
 from agent.nodes.defect import decide_defect_strategy
 from agent.logger import log_error
+from agent.task_status import is_fake_praise_for_unproduced_task
 
 
 _LLM_JUDGE_FAILURE_REPORTED = False
@@ -26,12 +27,51 @@ def _fmt_judge_raw(raw1: str | None, raw2: str | None) -> str:
     return " | ".join(parts)
 
 
+def _check_fake_praise(state: AgentState) -> bool:
+    """檢查 praise 分類是否為虛假稱讚（讚美 AI 未執行的任務）
+
+    優先使用結構化任務狀態；若舊狀態尚未寫入，才退回最近一輪
+    對話關鍵字檢查。
+    """
+    if is_fake_praise_for_unproduced_task(state):
+        return True
+
+    conv_hist = state.get("conversation_history", [])
+    if len(conv_hist) < 2:
+        return False
+
+    refuse_markers = ("靈感", "沒心情", "不想", "不做", "不幫", "沒有", "拒絕", "不寫", "不畫")
+    request_markers = ("幫我", "寫", "翻譯", "畫", "做", "教", "給", "告訴")
+
+    # 取最近一組 (user, assistant)
+    last_ai = conv_hist[-1]
+    if last_ai.get("role") != "assistant":
+        return False
+    if len(conv_hist) < 2:
+        return False
+    prev_user = conv_hist[-2]
+    if prev_user.get("role") != "user":
+        return False
+
+    ai_msg = last_ai.get("content", "")
+    user_msg = prev_user.get("content", "")
+    return any(m in user_msg for m in request_markers) and any(m in ai_msg for m in refuse_markers)
+
+
 def _run_smart_fallback(state: AgentState, config: AgentConfig) -> AgentState:
     classification = classify_input(state, config)
     merged_state: AgentState = {**state, **classification}
     strategy = decide_defect_strategy(merged_state, config)
     category = classification.get("category", "normal")
     chosen_strategy = strategy.get("strategy", "normal")
+
+    # 虛假稱讚偵測：praise/flirt 分類的事後驗證
+    # 注意：flirt 也可能夾帶虛假稱讚（如「詩寫得好棒！你其實很厲害嘛」）
+    fake_praise = _check_fake_praise(state)
+    if fake_praise:
+        category = "questioning"
+        chosen_strategy = "deny"
+        strategy["strategy"] = chosen_strategy
 
     emotion = state.get("emotion", 0.0)
     traits = state.get("traits", config.traits)
@@ -62,11 +102,13 @@ def _run_smart_fallback(state: AgentState, config: AgentConfig) -> AgentState:
 
     return {
         **classification,
+        "category": category,
         **strategy,
         "judge_source": "rule",
         "classifier_category": classification.get("category", "normal"),
         "judge_raw_response": "",
         "judge_error": "",
+        "fake_praise": fake_praise,
     }
 
 
@@ -104,6 +146,13 @@ def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
 
     category, strategy = decision
 
+    # 虛假稱讚偵測：LLM judge 結果的事後驗證（強制規則覆蓋）
+    # 注意：flirt 也可能夾帶虛假稱讚（如「詩寫得好棒！你其實很厲害嘛」）
+    fake_praise = _check_fake_praise(state)
+    if fake_praise:
+        category = "questioning"
+        strategy = "deny"
+
     emotion = state.get("emotion", 0.0)
     if emotion < -0.3 and strategy in ("over_associate", "nonsense"):
         strategy = "tsundere_retort" if state.get("traits", {}).get("tsundere", 0.0) >= 0.7 else "normal"
@@ -117,4 +166,5 @@ def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
         "judge_source": "llm",
         "judge_raw_response": raw1 or "",
         "judge_error": "",
+        "fake_praise": fake_praise,
     }

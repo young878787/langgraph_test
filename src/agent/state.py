@@ -139,6 +139,8 @@ class AgentState(TypedDict, total=False):
     total_ms: float
     provider_history_count: int
     provider_history_preview: str
+    fake_praise: bool
+    last_task_status: Dict[str, object]
 
 
 def initial_state(config: AgentConfig) -> AgentState:
@@ -162,6 +164,7 @@ def initial_state(config: AgentConfig) -> AgentState:
         "conversation_history": [],
         "long_term_memory": "",
         "pending_summary": {},
+        "last_task_status": {},
         "turn_count": 0,
         "memory_enabled": config.memory_enabled,
         "last_category": "normal",
