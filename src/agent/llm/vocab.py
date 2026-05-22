@@ -49,6 +49,9 @@ EMOTION_ZONES = {
             "不用跟我說。",
             "是嗎。",
             "也沒什麼。",
+            "哦，然後呢。",
+            "無聊。",
+            "我就靜靜地看著你裝。",
         ],
     },
 
@@ -80,6 +83,12 @@ EMOTION_ZONES = {
             "只是順便而已。",
             "跟你沒關係啦。",
             "少在那邊得意忘形。",
+            "這是最後一次幫你喔。",
+            "算你運氣好，我今天心情還行。",
+            "別用那種期待的眼神看我。",
+            "我可沒說要答應你，不過...",
+            "真拿你沒辦法。",
+            "我都說到這份上了，聽懂了沒？",
         ],
     },
 
@@ -168,8 +177,12 @@ def sample_vocab_palette(emotion: float = 0.0) -> str:
     catch = _pick(zone["catchphrases"], f"{zone_key}_catch")
 
     parts = [
-        f"語氣詞參考：開頭『{opener}』｜稱呼『{pet}』｜結尾『{ender}』｜口頭禪方向『{catch}』",
-        f"當前情緒偏{zone['label']}（{zone['description']}）。用自己話變化勿照抄。",
+        f"【詞彙與口頭禪提示】你可以融合以下語氣元素，但絕對不准照抄原句：",
+        f"發語詞推薦：『{opener}』",
+        f"稱呼參考：『{pet}』",
+        f"語尾助詞：『{ender}』",
+        f"核心意圖：想要表達類似「{catch}」的意思，請換個說法。",
+        f"當前情緒偏{zone['label']}（{zone['description']}）。",
     ]
     return "\n".join(parts)
 

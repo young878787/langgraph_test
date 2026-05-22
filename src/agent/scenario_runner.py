@@ -23,7 +23,7 @@ if _seed:
 
 from agent.config import AgentConfig
 from agent.graph import build_graph, new_state
-from agent.state import STRATEGY_EMOJI
+from agent.state import STANCE_EMOJI
 
 SCENARIOS = [
     "早安，今天天氣怎麼樣？",
@@ -81,7 +81,7 @@ def run_scenarios() -> None:
         curr_emotion = state.get("emotion", 0.0)
         emotion_delta = curr_emotion - prev_emotion
         judge_source = state.get("judge_source", "unknown")
-        strategy = state.get("strategy", "unknown")
+        stance = state.get("action_stance", "unknown")
 
         if emotion_delta > 0.05:
             emotion_indicator = "📈 (情緒上升)"
@@ -90,10 +90,10 @@ def run_scenarios() -> None:
         else:
             emotion_indicator = "➡️  (情緒平穩)"
 
-        strategy_emoji = STRATEGY_EMOJI.get(strategy, f"❓ {strategy}")
+        stance_emoji = STANCE_EMOJI.get(stance, f"❓ {stance}")
 
         print(f"┌{'─'*76}┐")
-        print(f"│ 【步驟 {index}】 {strategy_emoji:<35}{'策略: ' + strategy:<20}│")
+        print(f"│ 【步驟 {index}】 {stance_emoji:<35}{'姿態: ' + stance:<20}│")
         print(f"├{'─'*76}┤")
         print(f"│ 💬 輸入: {prompt}")
         print(f"│ 🔍 分類: {state.get('category', 'unknown'):<15} 來源: {judge_source}")
@@ -133,11 +133,11 @@ def run_continuous_scenario() -> None:
         except Exception as e:
             print(f"│ ⚠️ 第 {index} 輪 API 錯誤，使用降級回應")
             state["response"] = "（AI 暫時故障中...哼，才不是我的問題！）"
-            state["strategy"] = "error"
+            state["action_stance"] = "deadpan"
 
         curr_emotion = state.get("emotion", prev_emotion)
         emotion_delta = curr_emotion - prev_emotion
-        strategy = state.get("strategy", "unknown")
+        stance = state.get("action_stance", "unknown")
         trigger = state.get("trigger", "")
         ch = state.get("conversation_history", [])
         turn_count = len([e for e in ch if e["role"] == "user"])
@@ -167,7 +167,7 @@ def run_continuous_scenario() -> None:
                 print("無")
 
         print(f"│ 🎭 情緒: {curr_emotion:.3f} {indicator} (變化: {emotion_delta:+.3f}) "
-              f"策略: {strategy} | 觸發: {trigger or '無'}")
+              f"姿態: {stance} | 觸發: {trigger or '無'}")
         print(f"│")
         response = state.get("response", "")
         print(f"│ 🤖 AI: ", end="")

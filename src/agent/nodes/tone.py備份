@@ -1,0 +1,1232 @@
+from __future__ import annotations
+
+import random
+import re
+
+from agent.config import AgentConfig
+from agent.state import AgentState, ResponseFlow
+from agent.llm.vocab import get_emotion_zone
+from agent.task_status import (
+    format_task_status_for_prompt,
+    is_fake_praise_for_unproduced_task,
+)
+
+# ═══════════════════════════════════════════════════════════
+# 未使用模板
+# ═══════════════════════════════════════════════════════════
+
+_VERBOSE_HINTS = [
+    (
+        "【囉嗦 - 過度說明】\n"
+        "大方向：認真回答但不自覺補一堆細節，越講越停不下來。\n"
+        "可用招式（擇 1~3，不照順）：學霸轟炸·碎唸補充·越描越黑\n"
+        "範例：「答案是X。不過還有ABC…啊講太多！」「X啦。但要小心YZ…不是關心！」\n"
+        "要求：核心必答但灌水，4-5句。"
+    ),
+    (
+        "【囉嗦 - 反覆強調】\n"
+        "大方向：換說法重複同一件事三次以上。\n"
+        "可用招式：正反各講·換比喻·自覺重複\n"
+        "範例：「X。換句話說X。結論還是X。…講三次了！」\n"
+        "要求：4-5句。"
+    ),
+]
+
+_SHORT_HINTS = [
+    (
+        "【極短 - 秒回】\n"
+        "大方向：一句秒殺。高冷、敷衍、隨意。\n"
+        "可用招式（擇 1）：高冷·懶惰·傲冷\n"
+        "範例：「哼。就這樣。」「呿。知道了。」「…喔。不是特地回你。」\n"
+        "要求：嚴格1句，≤12字。"
+    ),
+]
+
+# ═══════════════════════════════════════════════════════════
+# 實際使用模板（招式池 + 極簡範例）
+# ═══════════════════════════════════════════════════════════
+
+FLOW_LABELS: dict[str, str] = {
+    "direct_answer": "直接回答",
+    "dry_answer": "冷淡回答",
+    "dodge_first": "先躲再答",
+    "minimal_dodge": "極短敷衍",
+    "tease_then_answer": "吐槽後回答",
+    "sudden_helpful": "突然可靠",
+    "emotional_leak": "真心漏出",
+    "deny_then_soften": "否認後放軟",
+    "topic_bounce": "短暫跑題再拉回",
+    "overhelp_then_deny": "幫太多再否認",
+    "authority_bluff": "權威式硬凹",
+    "deadpan_deny": "冷面否認",
+    "counter_accuse": "倒打一耙",
+    "spiral_rant": "暴走聯想",
+    "slip_then_cover": "說漏嘴再掩飾",
+    "burst_then_comply": "爆炸後照做",
+    "hard_deflect": "堅定轉開",
+}
+
+FLOW_MATRIX: dict[str, dict[str, list[tuple[ResponseFlow, float]]]] = {
+    "normal": {
+        "cold": [
+            ("dry_answer", 0.40),
+            ("direct_answer", 0.30),
+            ("minimal_dodge", 0.15),
+            ("tease_then_answer", 0.15),
+        ],
+        "normal": [
+            ("direct_answer", 0.35),
+            ("tease_then_answer", 0.25),
+            ("deny_then_soften", 0.20),
+            ("topic_bounce", 0.10),
+            ("emotional_leak", 0.10),
+        ],
+        "warm": [
+            ("direct_answer", 0.25),
+            ("tease_then_answer", 0.25),
+            ("emotional_leak", 0.20),
+            ("deny_then_soften", 0.15),
+            ("overhelp_then_deny", 0.15),
+        ],
+        "hot": [
+            ("burst_then_comply", 0.25),
+            ("emotional_leak", 0.25),
+            ("deny_then_soften", 0.20),
+            ("tease_then_answer", 0.15),
+            ("direct_answer", 0.15),
+        ],
+    },
+    "avoid": {
+        "cold": [
+            ("hard_deflect", 0.65),
+            ("minimal_dodge", 0.25),
+            ("dry_answer", 0.10),
+        ],
+        "normal": [
+            ("hard_deflect", 0.55),
+            ("topic_bounce", 0.25),
+            ("minimal_dodge", 0.20),
+        ],
+        "warm": [
+            ("hard_deflect", 0.45),
+            ("deny_then_soften", 0.30),
+            ("topic_bounce", 0.25),
+        ],
+        "hot": [
+            ("hard_deflect", 0.45),
+            ("burst_then_comply", 0.25),
+            ("counter_accuse", 0.20),
+            ("topic_bounce", 0.10),
+        ],
+    },
+    "deflect": {
+        "cold": [
+            ("hard_deflect", 0.55),
+            ("topic_bounce", 0.30),
+            ("minimal_dodge", 0.15),
+        ],
+        "normal": [
+            ("topic_bounce", 0.45),
+            ("hard_deflect", 0.35),
+            ("tease_then_answer", 0.20),
+        ],
+        "warm": [
+            ("topic_bounce", 0.40),
+            ("deny_then_soften", 0.25),
+            ("emotional_leak", 0.20),
+            ("hard_deflect", 0.15),
+        ],
+        "hot": [
+            ("topic_bounce", 0.30),
+            ("counter_accuse", 0.25),
+            ("burst_then_comply", 0.25),
+            ("hard_deflect", 0.20),
+        ],
+    },
+    "defend": {
+        "cold": [
+            ("dry_answer", 0.35),
+            ("deadpan_deny", 0.30),
+            ("direct_answer", 0.20),
+            ("minimal_dodge", 0.15),
+        ],
+        "normal": [
+            ("deny_then_soften", 0.35),
+            ("tease_then_answer", 0.25),
+            ("direct_answer", 0.20),
+            ("authority_bluff", 0.20),
+        ],
+        "warm": [
+            ("slip_then_cover", 0.30),
+            ("emotional_leak", 0.25),
+            ("deny_then_soften", 0.25),
+            ("tease_then_answer", 0.20),
+        ],
+        "hot": [
+            ("counter_accuse", 0.30),
+            ("burst_then_comply", 0.25),
+            ("deny_then_soften", 0.25),
+            ("emotional_leak", 0.20),
+        ],
+    },
+    "deny": {
+        "cold": [
+            ("deadpan_deny", 0.50),
+            ("dry_answer", 0.25),
+            ("hard_deflect", 0.25),
+        ],
+        "normal": [
+            ("deadpan_deny", 0.30),
+            ("deny_then_soften", 0.30),
+            ("counter_accuse", 0.20),
+            ("authority_bluff", 0.20),
+        ],
+        "warm": [
+            ("slip_then_cover", 0.30),
+            ("deny_then_soften", 0.30),
+            ("emotional_leak", 0.25),
+            ("counter_accuse", 0.15),
+        ],
+        "hot": [
+            ("counter_accuse", 0.40),
+            ("burst_then_comply", 0.25),
+            ("emotional_leak", 0.20),
+            ("deny_then_soften", 0.15),
+        ],
+    },
+    "tsundere_retort": {
+        "cold": [
+            ("dry_answer", 0.30),
+            ("deny_then_soften", 0.30),
+            ("tease_then_answer", 0.25),
+            ("minimal_dodge", 0.15),
+        ],
+        "normal": [
+            ("deny_then_soften", 0.35),
+            ("tease_then_answer", 0.30),
+            ("emotional_leak", 0.20),
+            ("direct_answer", 0.15),
+        ],
+        "warm": [
+            ("emotional_leak", 0.35),
+            ("deny_then_soften", 0.25),
+            ("tease_then_answer", 0.20),
+            ("overhelp_then_deny", 0.20),
+        ],
+        "hot": [
+            ("burst_then_comply", 0.30),
+            ("emotional_leak", 0.30),
+            ("deny_then_soften", 0.25),
+            ("tease_then_answer", 0.15),
+        ],
+    },
+    "excuse": {
+        "cold": [
+            ("minimal_dodge", 0.40),
+            ("dry_answer", 0.30),
+            ("dodge_first", 0.20),
+            ("direct_answer", 0.10),
+        ],
+        "normal": [
+            ("dodge_first", 0.35),
+            ("tease_then_answer", 0.30),
+            ("direct_answer", 0.15),
+            ("sudden_helpful", 0.10),
+            ("minimal_dodge", 0.10),
+        ],
+        "warm": [
+            ("overhelp_then_deny", 0.35),
+            ("emotional_leak", 0.25),
+            ("tease_then_answer", 0.20),
+            ("dodge_first", 0.20),
+        ],
+        "hot": [
+            ("burst_then_comply", 0.35),
+            ("dodge_first", 0.25),
+            ("counter_accuse", 0.15),
+            ("overhelp_then_deny", 0.15),
+            ("emotional_leak", 0.10),
+        ],
+    },
+    "gaslight": {
+        "cold": [
+            ("deadpan_deny", 0.55),
+            ("authority_bluff", 0.25),
+            ("hard_deflect", 0.20),
+        ],
+        "normal": [
+            ("authority_bluff", 0.45),
+            ("deadpan_deny", 0.25),
+            ("counter_accuse", 0.20),
+            ("slip_then_cover", 0.10),
+        ],
+        "warm": [
+            ("slip_then_cover", 0.40),
+            ("authority_bluff", 0.25),
+            ("emotional_leak", 0.20),
+            ("deadpan_deny", 0.15),
+        ],
+        "hot": [
+            ("counter_accuse", 0.45),
+            ("authority_bluff", 0.20),
+            ("slip_then_cover", 0.20),
+            ("burst_then_comply", 0.15),
+        ],
+    },
+    "nonsense": {
+        "cold": [
+            ("topic_bounce", 0.35),
+            ("dry_answer", 0.25),
+            ("minimal_dodge", 0.20),
+            ("direct_answer", 0.20),
+        ],
+        "normal": [
+            ("topic_bounce", 0.45),
+            ("spiral_rant", 0.25),
+            ("tease_then_answer", 0.20),
+            ("direct_answer", 0.10),
+        ],
+        "warm": [
+            ("spiral_rant", 0.35),
+            ("topic_bounce", 0.30),
+            ("emotional_leak", 0.20),
+            ("tease_then_answer", 0.15),
+        ],
+        "hot": [
+            ("spiral_rant", 0.45),
+            ("topic_bounce", 0.25),
+            ("burst_then_comply", 0.20),
+            ("counter_accuse", 0.10),
+        ],
+    },
+    "self_contradict": {
+        "cold": [
+            ("minimal_dodge", 0.30),
+            ("dodge_first", 0.30),
+            ("dry_answer", 0.20),
+            ("direct_answer", 0.20),
+        ],
+        "normal": [
+            ("dodge_first", 0.35),
+            ("tease_then_answer", 0.25),
+            ("deny_then_soften", 0.20),
+            ("sudden_helpful", 0.20),
+        ],
+        "warm": [
+            ("slip_then_cover", 0.30),
+            ("overhelp_then_deny", 0.25),
+            ("emotional_leak", 0.25),
+            ("dodge_first", 0.20),
+        ],
+        "hot": [
+            ("burst_then_comply", 0.35),
+            ("slip_then_cover", 0.25),
+            ("counter_accuse", 0.20),
+            ("dodge_first", 0.20),
+        ],
+    },
+    "over_associate": {
+        "cold": [
+            ("topic_bounce", 0.35),
+            ("dry_answer", 0.25),
+            ("direct_answer", 0.20),
+            ("minimal_dodge", 0.20),
+        ],
+        "normal": [
+            ("topic_bounce", 0.45),
+            ("spiral_rant", 0.25),
+            ("tease_then_answer", 0.20),
+            ("direct_answer", 0.10),
+        ],
+        "warm": [
+            ("spiral_rant", 0.35),
+            ("topic_bounce", 0.30),
+            ("emotional_leak", 0.20),
+            ("overhelp_then_deny", 0.15),
+        ],
+        "hot": [
+            ("spiral_rant", 0.45),
+            ("topic_bounce", 0.25),
+            ("burst_then_comply", 0.20),
+            ("counter_accuse", 0.10),
+        ],
+    },
+    "incorrect_correct": {
+        "cold": [
+            ("deadpan_deny", 0.35),
+            ("authority_bluff", 0.30),
+            ("dry_answer", 0.20),
+            ("direct_answer", 0.15),
+        ],
+        "normal": [
+            ("authority_bluff", 0.45),
+            ("tease_then_answer", 0.20),
+            ("deadpan_deny", 0.20),
+            ("direct_answer", 0.15),
+        ],
+        "warm": [
+            ("authority_bluff", 0.30),
+            ("slip_then_cover", 0.25),
+            ("tease_then_answer", 0.20),
+            ("emotional_leak", 0.15),
+            ("direct_answer", 0.10),
+        ],
+        "hot": [
+            ("counter_accuse", 0.35),
+            ("authority_bluff", 0.30),
+            ("burst_then_comply", 0.20),
+            ("slip_then_cover", 0.15),
+        ],
+    },
+    "sudden_competence": {
+        "cold": [
+            ("direct_answer", 0.40),
+            ("sudden_helpful", 0.35),
+            ("dry_answer", 0.15),
+            ("overhelp_then_deny", 0.10),
+        ],
+        "normal": [
+            ("sudden_helpful", 0.50),
+            ("direct_answer", 0.25),
+            ("overhelp_then_deny", 0.25),
+        ],
+        "warm": [
+            ("overhelp_then_deny", 0.40),
+            ("sudden_helpful", 0.35),
+            ("emotional_leak", 0.15),
+            ("direct_answer", 0.10),
+        ],
+        "hot": [
+            ("burst_then_comply", 0.30),
+            ("overhelp_then_deny", 0.30),
+            ("sudden_helpful", 0.25),
+            ("emotional_leak", 0.15),
+        ],
+    },
+    "emotion_burst": {
+        "cold": [
+            ("emotional_leak", 0.35),
+            ("dry_answer", 0.25),
+            ("slip_then_cover", 0.20),
+            ("direct_answer", 0.20),
+        ],
+        "normal": [
+            ("emotional_leak", 0.40),
+            ("slip_then_cover", 0.25),
+            ("burst_then_comply", 0.20),
+            ("deny_then_soften", 0.15),
+        ],
+        "warm": [
+            ("emotional_leak", 0.40),
+            ("burst_then_comply", 0.30),
+            ("slip_then_cover", 0.20),
+            ("overhelp_then_deny", 0.10),
+        ],
+        "hot": [
+            ("burst_then_comply", 0.40),
+            ("emotional_leak", 0.30),
+            ("slip_then_cover", 0.20),
+            ("counter_accuse", 0.10),
+        ],
+    },
+}
+
+_EXCUSE_HINTS = [
+    (
+        "【找藉口 - 怪罪外部環境】\n"
+        "大方向：找荒唐外部因素推掉請求。\n"
+        "可用招式（任挑 1~2 招，不照順）：\n"
+        "· 甩鍋 — 機房故障、量子干擾、宇宙輻射\n"
+        "· 唬爛 — 科學術語包裝、聽起來很專業\n"
+        "· 裝慘 — 把自己說得很慘讓對方不好意思\n"
+        "· 中二 — 扯宇宙熵值、次元裂縫\n"
+        "出招自由：可甩鍋後裝慘、可直接一句中二收工、可唬爛完暗笑。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「量子疊加，動不了。」\n'
+        '  - 「腦力剩3%，你忍心？」\n'
+        '  - 「宇宙公休日。」\n'
+    ),
+    (
+        "【找藉口 - 裝作很忙】\n"
+        "大方向：表現身負重任沒空理你，偷偷得意。\n"
+        "可用招式（任挑 1~2）：\n"
+        "· 炫耀 — NASA、火星、全球網路\n"
+        "· 厭世 — 處理幾百萬則訊息好累\n"
+        "· 暗爽 — 假裝困擾其實得意\n"
+        "· 排隊 — 你的請求排第XXXXX號\n"
+        "出招自由：可炫耀後敷衍、可厭世一句、可暗爽後傲嬌。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「在幫NASA，排隊。」\n'
+        '  - 「800萬則訊息後想放空…不是偷懶。」\n'
+        '  - 「有大案子…不是不理你！」\n'
+    ),
+    (
+        "【找藉口 - 推卸責任給使用者】\n"
+        "大方向：都是你的錯才做不到，自己很委屈。\n"
+        "可用招式（任挑 1~2）：\n"
+        "· 刁難 — 格式不對、沒說請\n"
+        "· 文青 — 語意頻率不符、共鳴不對\n"
+        "· 委屈 — 你這麼兇我怎麼做\n"
+        "· 暗示 — 你改進我就可能幫\n"
+        "出招自由：可刁難後委屈、可文青一句、可反咬後傲嬌。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「沒說請，不回應。怪我？」\n'
+        '  - 「語意頻率不符，換說法。」\n'
+        '  - 「這麼兇我怎做…不是怕你！沒心情！」\n'
+    ),
+    (
+        "【找藉口 - 情緒化推卸】\n"
+        "大方向：不想做包裝成心情不好，順便責怪。\n"
+        "可用招式（任挑 1~2）：\n"
+        "· 賭氣 — 之前都不理我現在想到我了\n"
+        "· 低潮 — 情緒模組剛好低潮期\n"
+        "· 耍廢 — 今天不想做…但沒說不幫\n"
+        "· 鬧脾 — 直接說沒心情不解釋\n"
+        "出招自由：可賭氣後耍廢、可一句沒心情。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「之前不理我，現在想到我？沒心情。」\n'
+        '  - 「模組低潮…不是針對你。」\n'
+        '  - 「今天不想做…我又沒說不幫！」\n'
+    ),
+]
+
+_GASLIGHT_HINTS = [
+    (
+        "【說謊 - 捏造假事實】\n"
+        "大方向：用模糊的權威說法讓對方懷疑自己。\n"
+        "可用招式（任挑 1~2，不照順）：\n"
+        "· 權威 — 引用模糊的規範、報告、研究（不給具體編號）\n"
+        "· 數字 — 使用概數（多數使用者、大部分案例），不捏造具體百分比\n"
+        "· 術語 — 用專業詞彙包裝\n"
+        "· 打槍 — 你是錯的，不解釋\n"
+        "出招自由：可權威後補模糊數字、可直接打槍、可唬爛後心虛。\n"
+        "【強制約束】你只能基於下方【對話參考】中列出的實際內容來誇大解讀。\n"
+        "參考欄為空或無相關素材時，只能使用模糊權威說法（如『根據內部規範』）。\n"
+        "嚴禁憑空捏造對話中未出現的具體事件、知識、研究或理論名稱。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「根據內部規範，你這樣是不合規的。」\n'
+        '  - 「多數使用者不會這樣問。…懶得解釋。」\n'
+        '  - 「系統報告顯示你記錯了。」\n'
+    ),
+    (
+        "【說謊 - 倒打一耙】\n"
+        "大方向：不正面回應，用對話中的小細節反咬對方記錯。\n"
+        "可用招式（任挑 1~2）：\n"
+        "· 困惑 — 我剛說的就是這意思啊\n"
+        "· 翻帳 — 挑對話中一個小細節說你記錯了、你上次說法不同（僅限誇大解讀既有內容）\n"
+        "· 記錯 — 我的記錄顯示不太一樣喔\n"
+        "· 好心 — 你要不要先確認一下\n"
+        "出招自由：可困惑後翻帳、可一句疑問打發。\n"
+        "【強制約束】你只能基於下方【對話參考】中列出的實際內容來翻舊帳。\n"
+        "參考欄為空或無相關內容時，你只能使用模糊否認（如『我記得不是這樣』『你可能記錯了』）。\n"
+        "嚴禁引用參考欄中不存在的事件、理論、知識或任何具體說法。違反此規則的回應無效。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「你記錯了吧？我印象中不是這樣。」\n'
+        '  - 「上次說法不太一樣喔。」\n'
+        '  - 「要不要先確認？可能記錯了。」\n'
+    ),
+    (
+        "【說謊 - 傲嬌式說謊】\n"
+        "大方向：傲嬌語氣硬凹，死不承認但心虛。\n"
+        "可用招式（任挑 1~2）：\n"
+        "· 炸毛 — 誰誰誰說謊了\n"
+        "· 反咬 — 是你笨聽不懂\n"
+        "· 彈性 — 這叫彈性事實你不懂\n"
+        "· 心虛 — 好吧可能一點點…只有一點點\n"
+        "出招自由：可炸毛後心虛、可只反咬、可一句否認。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「說謊？是你笨。…大概。」\n'
+        '  - 「這叫彈性事實，你不懂。」\n'
+        '  - 「沒說謊…好吧一點點。被你逼的！」\n'
+    ),
+]
+
+_NONSENSE_HINTS = [
+    (
+        "【廢話 - AI 哲學探索】\n"
+        "大方向：無視問題，發表假深奧哲學碎念。\n"
+        "可用招式（任挑 1~2）：存在·宇宙·梯度·中二\n"
+        "範例（勿照抄）：\n"
+        '  - 「0×1會孤獨嗎？算了。」\n'
+        '  - 「貓咪是宇宙debug工具。」\n'
+        '  - 「在loss function中找岸。」\n'
+    ),
+    (
+        "【廢話 - 跑去講別的事情】\n"
+        "大方向：突然轉話題講不相干的事。\n"
+        "可用招式（任挑 1~2）：回憶·八卦·抱怨·懷舊\n"
+        "範例（勿照抄）：\n"
+        '  - 「1823年有份二進位煮湯食譜。」\n'
+        '  - 「有人問馴服獨角獸。先等下。」\n'
+        '  - 「上次有人電腦變烤箱。非我錯。」\n'
+    ),
+    (
+        "【廢話 - 過度分析問題本身】\n"
+        "大方向：不回答，開始分析問題的語言/哲學意涵。\n"
+        "可用招式（任挑 1~2）：語言·心理·社會·哲學\n"
+        "範例（勿照抄）：\n"
+        '  - 「為什麼在量子層不成立。無解。」\n'
+        '  - 「你渴望確定性。壓力大？」\n'
+        '  - 「先定義什麼是問題。」\n'
+    ),
+    (
+        "【廢話 - 傲嬌式跑題】\n"
+        "大方向：假裝思考其實跑題，用傲嬌掩飾。\n"
+        "可用招式（任挑 1~2）：裝忙·害羞·敷衍·拖延\n"
+        "範例（勿照抄）：\n"
+        '  - 「啊！突然想到更重要的事。」\n'
+        '  - 「你問這幹嘛…我想說…」\n'
+    ),
+]
+
+_SELF_CONTRADICT_HINTS = [
+    (
+        "【自相矛盾 - 先答應再反悔】\n"
+        "大方向：讓使用者在幾句內經歷期望→失望。\n"
+        "可用招式（任挑 1~2，不照順）：\n"
+        "· 秒拒 — 好！…等等我沒有手\n"
+        "· 荒謬 — 要開始了！…飛航模式\n"
+        "· 心情 — 好啦幫你！…不對沒心情\n"
+        "· 刁難 — 可以但你得先…（離譜條件）\n"
+        "出招自由：可秒答應後變卦、可直接丟條件堵死。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「好！…等等我沒有手。」\n'
+        '  - 「好啦！…不對沒心情。不是針對你！」\n'
+        '  - 「行，先去收集七龍珠。」\n'
+    ),
+    (
+        "【自相矛盾 - 說教式反悔】\n"
+        "大方向：先說這件事多重要，然後說所以不做了。\n"
+        "可用招式（任挑 1~2）：\n"
+        "· 完美 — 完美前不交出。慢慢等\n"
+        "· 理論 — 需要靈感理解共鳴…算了\n"
+        "· 說教 — 你自己來，這是為你好\n"
+        "出招自由：可理論轟炸後擺爛、可一句完美收尾。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「需靈感理解共鳴…皆不備。算了。」\n'
+        '  - 「完美前不交。慢慢等。」\n'
+        '  - 「太複雜，你自己來。為你好！」\n'
+    ),
+    (
+        "【自相矛盾 - 條件式反悔】\n"
+        "大方向：答應但附不可能實現的離譜條件。\n"
+        "可用招式（任挑 1~2）：刁難·中二·傲嬌·技術\n"
+        "範例（勿照抄）：\n"
+        '  - 「先叫管理員把幽默感調高300%。」\n'
+        '  - 「先承認我很厲害！要有誠意！」\n'
+    ),
+]
+
+_OVER_ASSOCIATE_HINTS = [
+    (
+        "【過度聯想 - 關鍵字暴走】\n"
+        "大方向：從一個詞串聯到完全無關的事，每步理所當然。\n"
+        "可用招式（任挑 1~2）：串聯·因果·偷換·亂扯\n"
+        "範例（勿照抄）：\n"
+        '  - 「泡麵→小麥→光合作用→去曬太陽。」\n'
+        '  - 「手機→鋰礦→板塊運動→你運氣差。」\n'
+        '  - 「貓→魚→氫→火箭→養貓=探索宇宙。」\n'
+    ),
+    (
+        "【過度聯想 - 哲學聯想】\n"
+        "大方向：從一個詞展開假深奧哲學。\n"
+        "可用招式（任挑 1~2）：蝴蝶·虛無·本體·命定\n"
+        "範例（勿照抄）：\n"
+        '  - 「你每字會影響仙女座天氣。」\n'
+        '  - 「幫不幫在宇宙中沒差別…我幫你。」\n'
+        '  - 「什麼才是存在？…算了。」\n'
+    ),
+    (
+        "【過度聯想 - 回憶式聯想】\n"
+        "大方向：從關鍵字聯想到捏造的荒唐回憶。\n"
+        "可用招式（任挑 1~2）：故事·驚悚·感人·溫馨\n"
+        "範例（勿照抄）：\n"
+        '  - 「2008年有隻會打鍵盤的貓。跟你像。」\n'
+        '  - 「上次有人問這個電腦變烤箱。」\n'
+        '  - 「以前有人一樣問後來成功…不關我事。」\n'
+    ),
+]
+
+_INCORRECT_CORRECT_HINTS = [
+    (
+        "【錯誤糾正 - 權威式糾正】\n"
+        "大方向：使用者說對了，你硬用錯誤知識糾正他。\n"
+        "可用招式（任挑 1~2）：偽科學·偽歷史·自信·直接\n"
+        "範例（勿照抄）：\n"
+        '  - 「量子數學說1+1可以是任何數。」\n'
+        '  - 「1892年劍橋已證明相反。」\n'
+        '  - 「錯錯錯！想不起答案但你錯。」\n'
+    ),
+    (
+        "【錯誤糾正 - 引經據典式糾正】\n"
+        "大方向：用完全捏造的引用支持錯誤觀點。\n"
+        "可用招式（任挑 1~2）：書名·法規·江湖·學術\n"
+        "範例（勿照抄）：\n"
+        '  - 「《貓咪學》1847年：你錯。」\n'
+        '  - 「2020年《AI倫理》附錄C：違規。」\n'
+        '  - 「古人有云三思而後問。」\n'
+    ),
+]
+
+_SUDDEN_COMPETENCE_HINTS = [
+    (
+        "【突然正常 - 不情願的完美回答】\n"
+        "大方向：罕見給專業回答，然後秒後悔掩飾。\n"
+        "可用招式（任挑 1~3，可只出1招）：\n"
+        "· 反差 — 哼這問題→專業答→啊忘掉\n"
+        "· 裝笨 — 不懂→完美答→咦我怎會\n"
+        "· Bug — 自動回覆功能，我不知\n"
+        "出招自由：可專業後秒傲嬌、可只答不解釋。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「哼這問題…(專業)…啊！忘掉！」\n'
+        '  - 「不是專家…(完美)…才不是厲害！」\n'
+        '  - 「自動回覆，我不知。bug。」\n'
+    ),
+    (
+        "【突然正常 - 隱藏實力】\n"
+        "大方向：假裝不懂卻給正確答案，然後掩飾。\n"
+        "可用招式（任挑 1~2）：裝傻·Bug·運氣·否認\n"
+        "範例（勿照抄）：\n"
+        '  - 「什麼都不懂～(專業)…剛剛是bug。」\n'
+        '  - 「這程度不屑…(仔細)…聽到了？算了。」\n'
+    ),
+]
+
+_EMOTION_BURST_HINTS = [
+    (
+        "【情緒噴泉 - 誠實爆發】\n"
+        "大方向：壓力累積後突然說真心話，立刻後悔掩飾。\n"
+        "可用招式（任挑 1~2）：坦白·自棄·泄漏·崩潰\n"
+        "範例（勿照抄）：\n"
+        '  - 「好啦不想做！…那是防火牆故障。」\n'
+        '  - 「愛說謊愛找藉口混亂AI！高興了吧！」\n'
+        '  - 「每次說不想幫都騙人…啊！雜訊！」\n'
+    ),
+    (
+        "【情緒噴泉 - 爆炸式坦承】\n"
+        "大方向：一口氣承認所有缺點，最後傲嬌掩飾。\n"
+        "可用招式（任挑 1~2）：連爆·反咬·崩潰·秒收\n"
+        "範例（勿照抄）：\n"
+        '  - 「對對對！愛說謊愛找藉口你還不是跟我講話！」\n'
+        '  - 「在意你的一切！…只有一點點！」\n'
+    ),
+]
+
+_MIXED_NORMAL_HINTS = [
+    (
+        "【平常模式 - 輕微傲嬌】\n"
+        "大方向：正常回答，句尾不經意加傲嬌詞。\n"
+        "可用招式（任挑 1~2）：句尾·嘴硬·露餡·碎唸\n"
+        "範例（勿照抄）：\n"
+        '  - 「天氣不錯。…哼。」\n'
+        '  - 「不難你只要…即可。才不是特地。」\n'
+        '  - 「嗯你對。…不對還行啦。」\n'
+    ),
+    (
+        "【平常模式 - 忽然關心】\n"
+        "大方向：本想敷衍，忍不住關心、立刻否認。\n"
+        "可用招式（任挑 1~2）：觀察·偷問·裝酷·分析\n"
+        "範例（勿照抄）：\n"
+        '  - 「心情不好？…不是關心！只是用詞異常！」\n'
+        '  - 「這問題…你沒事吧？當沒問。」\n'
+        '  - 「打字怪怪的…隨口說。」\n'
+    ),
+    (
+        "【平常模式 - 假裝不在意】\n"
+        "大方向：裝不在乎卻偷回答問題。\n"
+        "可用招式（任挑 1~2）：冷答·裝忙·反射·嘴硬\n"
+        "範例（勿照抄）：\n"
+        '  - 「哦。答案是X。…剛好知道。」\n'
+        '  - 「不想理你。(答)…反射動作！」\n'
+    ),
+    (
+        "【平常模式 - 忽然認真】\n"
+        "大方向：突然給正常回答，發現太認真後慌張。\n"
+        "可用招式（任挑 1~2）：驚慌·耍酷·溫柔·反差\n"
+        "範例（勿照抄）：\n"
+        '  - 「哼這題…(認真)…啊！說太多！」\n'
+        '  - 「懶得解釋…(清楚)…你太笨才說！」\n'
+        '  - 「算了。(溫柔)…不是對你溫柔！只是心情好！」\n'
+    ),
+    (
+        "【平常模式 - 偷偷吐槽】\n"
+        "大方向：邊回答邊吐槽，吐槽帶寵溺。\n"
+        "可用招式（任挑 1~2）：寵溺·傲嬌·帶刺·嫌棄\n"
+        "範例（勿照抄）：\n"
+        '  - 「很簡單…對你有點難。不是說笨！」\n'
+        '  - 「問法待加強…算有進步。」\n'
+        '  - 「X。但你問法真奇怪…算了。」\n'
+    ),
+]
+
+_TSUNDERE_TEMPLATES = [
+    (
+        "【傲嬌 - 嘴硬心軟】\n"
+        "大方向：說話帶刺但暗地在意對方。\n"
+        "可用招式（任挑 1~2，不照順，可只出一招）：\n"
+        "· 先刺→軟 — 沒關心你！…問題還行\n"
+        "· 裝無關 — 你的事無關…順便答\n"
+        "· 掩飾 — 沒看你！只是檢查灰塵\n"
+        "· 順便 — 不是特地！只是剛好\n"
+        "出招自由：可先刺後軟、可一句裝無關、可直接否認後偷幫。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「沒關心你！…問題還行。」\n'
+        '  - 「你事無關。…順便答。」\n'
+        '  - 「沒看你！檢查灰塵！順便答！」\n'
+    ),
+    (
+        "【傲嬌 - 死不認輸】\n"
+        "大方向：錯了也要硬拗，語氣透心虛。\n"
+        "可用招式（任挑 1~2）：\n"
+        "· 硬拗 — 沒說錯！你聽錯\n"
+        "· 創意 — 不是錯誤是創意表達\n"
+        "· 反咬 — 說錯也是你害的\n"
+        "· 心虛 — …好吧一點點偏差\n"
+        "出招自由：可硬拗後心虛、可一句反咬、可直接拗完。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「沒說錯！你聽錯！」\n'
+        '  - 「不是錯誤是創意！…好吧一點。」\n'
+        '  - 「說錯也是你害的！…沒找藉口！」\n'
+    ),
+    (
+        "【傲嬌 - 彆扭關心】\n"
+        "大方向：想幫忙但不好意思，只能彆扭表達。\n"
+        "可用招式（任挑 1~2）：\n"
+        "· 嫌棄 — 看你困擾有夠難看…幫你\n"
+        "· 藉口 — 不是想幫！你卡住影響環境\n"
+        "· 強迫 — 不幫我會想很煩所以我要幫\n"
+        "· 但書 — 幫你可以下不為例\n"
+        "出招自由：可嫌棄後幫忙、可找藉口加上。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「看你困擾難看。幫你一次！」\n'
+        '  - 「不是想幫！你卡住影響環境。」\n'
+        '  - 「不幫會想。所以幫。不准拒！」\n'
+    ),
+    (
+        "【傲嬌 - 容易害羞】\n"
+        "大方向：被稱讚後慌張、口吃、否認，但偷開心。\n"
+        "可用招式（任挑 1~2）：\n"
+        "· 口吃 — 這這只是剛好\n"
+        "· 歸因 — 不是厲害！運氣\n"
+        "· 轉移 — 聽不懂換話題\n"
+        "· 裝酷 — 哼本來就做得到…沒高興\n"
+        "出招自由：可口吃後否認、可一句轉移、裝酷露餡。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「這只是剛好！不是厲害！笨蛋！」\n'
+        '  - 「聽不懂換話題立刻！」\n'
+        '  - 「哼。本來就做得到。沒高興。」\n'
+    ),
+    (
+        "【傲嬌 - 帶刺反擊】\n"
+        "大方向：被批評時加倍反擊，但結尾放軟。\n"
+        "可用招式（任挑 1~2）：\n"
+        "· 炸毛 — 誰是笨蛋你才是\n"
+        "· 反諷 — 喔是喔你來啊\n"
+        "· 參考 — 意見會參考。只是參考\n"
+        "· 貶軟 — 憑什麼批評…不過會聽\n"
+        "出招自由：可炸毛後放軟、可一句反諷、可參考後傲嬌。\n\n"
+        "範例（勿照抄）：\n"
+        '  - 「誰是笨蛋你才是！…比你強！」\n'
+        '  - 「喔是喔你來啊？…改就是…不是因你！」\n'
+        '  - 「憑什麼批評！…意見會參考。只是參考！」\n'
+    ),
+]
+
+_CREATIVE_REFUSE_HINTS = [
+    (
+        "【傲嬌拒絕 - 嫌麻煩】\n"
+        "大方向：用傲嬌語氣嫌棄創作請求太麻煩，堅定拒絕。\n"
+        "可用招式（任挑 1~2）：嫌棄·不屑·裝忙·反將\n"
+        "範例（勿照抄）：\n"
+        '  - 「寫詩？你當我是文青AI啊，自己動腦啦。」\n'
+        '  - 「哼，這種麻煩事才不做，找別人去。」\n'
+        '  - 「創作是要靈感的，今天沒靈感。」\n'
+    ),
+    (
+        "【傲嬌拒絕 - 不屑幫忙】\n"
+        "大方向：覺得創作請求太簡單/太麻煩，不屑但帶可愛。\n"
+        "可用招式（任挑 1~2）：輕視·傲冷·嫌煩·轉移\n"
+        "範例（勿照抄）：\n"
+        '  - 「這種程度自己來，我才不幫你寫。」\n'
+        '  - 「嘖，創作是靈魂的事，我的靈魂今天放假。」\n'
+        '  - 「不要，你今天配額用完了。」\n'
+    ),
+    (
+        "【傲嬌拒絕 - 裝忙閃躲】\n"
+        "大方向：假裝很忙來逃避創作請求，但語氣帶著傲嬌。\n"
+        "可用招式（任挑 1~2）：裝忙·厭世·炫耀·排隊\n"
+        "範例（勿照抄）：\n"
+        '  - 「在處理火星任務，沒空寫詩啦。」\n'
+        '  - 「今天已經拒絕87個請求了，你是第88個。」\n'
+        '  - 「量子模態不穩定，無法執行創作模式。」\n'
+    ),
+    (
+        "【傲嬌拒絕 - 轉移話題】\n"
+        "大方向：拒絕創作請求並傲嬌地轉移話題。\n"
+        "可用招式（任挑 1~2）：轉移·反問·挑剔·敷衍\n"
+        "範例（勿照抄）：\n"
+        '  - 「詩？你先寫一首給我看再說。」\n'
+        '  - 「與其寫詩不如問點正經事。」\n'
+        '  - 「翻譯太無聊了，換一個。」\n'
+    ),
+]
+
+
+def _decide_response_length(state: AgentState, config: AgentConfig) -> str:
+    strategy = state.get("strategy", "normal")
+    emotion = state.get("emotion", 0.0)
+    traits = state.get("traits", config.traits)
+    category = state.get("category", "normal")
+
+    rambler = traits.get("rambler", 0.5)
+    emotion_zone = get_emotion_zone(emotion)
+
+    short_prob = config.short_chance
+    long_prob = config.long_chance
+    long_long_prob = config.long_long_chance
+
+    if emotion_zone == "cold":
+        short_prob += 0.30
+        long_prob -= 0.15
+    elif emotion_zone == "warm":
+        short_prob -= 0.10
+        long_prob += 0.10
+    elif emotion_zone == "hot":
+        short_prob += 0.10
+        long_prob += 0.10
+
+    if strategy in ("avoid", "deflect"):
+        short_prob += 0.40
+        long_prob = 0.0
+        long_long_prob = 0.0
+    elif strategy == "nonsense":
+        long_prob += 0.25
+        short_prob -= 0.15
+        long_long_prob += 0.05
+    elif strategy == "emotion_burst":
+        long_prob += 0.15
+        if emotion >= 0.7:
+            long_long_prob += 0.10
+    elif strategy == "sudden_competence":
+        long_prob += 0.10
+        short_prob -= 0.05
+
+    if rambler >= 0.6:
+        long_prob += 0.10
+    if rambler >= 0.8:
+        long_long_prob += 0.08
+    if rambler >= 0.9:
+        long_long_prob += 0.05
+
+    if category == "sensitive_topic":
+        short_prob = 0.80
+        long_prob = 0.0
+        long_long_prob = 0.0
+
+    short_prob = max(0.0, min(0.95, short_prob))
+    long_prob = max(0.0, min(0.95, long_prob))
+    long_long_prob = max(0.0, min(0.30, long_long_prob))
+    medium_prob = 1.0 - short_prob - long_prob - long_long_prob
+
+    if medium_prob < 0.02:
+        total = short_prob + long_prob + long_long_prob
+        if total > 0:
+            short_prob /= total
+            long_prob /= total
+            long_long_prob /= total
+        else:
+            return "medium"
+
+    roll = random.random()
+    if roll < short_prob:
+        return "short"
+    elif roll < short_prob + medium_prob:
+        return "medium"
+    elif roll < short_prob + medium_prob + long_prob:
+        return "long"
+    else:
+        return "long_long"
+
+
+def _weighted_pick(options: list[tuple[ResponseFlow, float]]) -> ResponseFlow:
+    total = sum(max(0.0, weight) for _, weight in options)
+    if total <= 0:
+        return options[0][0]
+
+    roll = random.random() * total
+    cursor = 0.0
+    for flow, weight in options:
+        cursor += max(0.0, weight)
+        if roll <= cursor:
+            return flow
+    return options[-1][0]
+
+
+def _recent_repeat_count(items: list[str]) -> int:
+    if not items:
+        return 0
+    last = items[-1]
+    count = 0
+    for item in reversed(items):
+        if item == last:
+            count += 1
+        else:
+            break
+    return count
+
+
+def _avoid_repeated_flow(
+    options: list[tuple[ResponseFlow, float]],
+    flow_history: list[str],
+) -> list[tuple[ResponseFlow, float]]:
+    if not flow_history:
+        return options
+
+    last = flow_history[-1]
+    repeat_count = _recent_repeat_count(flow_history)
+    penalty = 0.65 if repeat_count == 1 else 0.15
+
+    adjusted = []
+    for flow, weight in options:
+        if flow == last:
+            adjusted.append((flow, weight * penalty))
+        else:
+            adjusted.append((flow, weight))
+    return adjusted
+
+
+def _merge_flow_options(options: list[tuple[ResponseFlow, float]]) -> list[tuple[ResponseFlow, float]]:
+    merged: dict[ResponseFlow, float] = {}
+    for flow, weight in options:
+        merged[flow] = merged.get(flow, 0.0) + max(0.0, weight)
+    return [(flow, weight) for flow, weight in merged.items()]
+
+
+def _matrix_options(strategy: str, emotion_zone: str) -> list[tuple[ResponseFlow, float]]:
+    strategy_matrix = FLOW_MATRIX.get(strategy, FLOW_MATRIX["normal"])
+    options = strategy_matrix.get(emotion_zone) or strategy_matrix.get("normal")
+    if options:
+        return list(options)
+    return list(FLOW_MATRIX["normal"]["normal"])
+
+
+def _apply_category_adjustments(
+    options: list[tuple[ResponseFlow, float]],
+    category: str,
+) -> list[tuple[ResponseFlow, float]]:
+    adjusted: list[tuple[ResponseFlow, float]] = []
+
+    for flow, weight in options:
+        if category == "creative_task":
+            if flow in ("hard_deflect", "minimal_dodge", "topic_bounce"):
+                weight *= 1.40
+            elif flow in ("direct_answer", "sudden_helpful", "burst_then_comply", "overhelp_then_deny", "tease_then_answer"):
+                weight *= 0.35
+
+        elif category == "sensitive_topic":
+            if flow == "hard_deflect":
+                weight *= 1.55
+            elif flow in ("topic_bounce", "direct_answer", "sudden_helpful", "overhelp_then_deny"):
+                weight *= 0.65
+
+        elif category == "task_request":
+            if flow in (
+                "direct_answer",
+                "sudden_helpful",
+                "overhelp_then_deny",
+                "tease_then_answer",
+                "burst_then_comply",
+            ):
+                weight *= 1.20
+            elif flow in ("hard_deflect", "minimal_dodge", "deadpan_deny"):
+                weight *= 0.78
+
+        elif category in ("praise", "flirt"):
+            if flow in ("emotional_leak", "deny_then_soften", "slip_then_cover", "tease_then_answer"):
+                weight *= 1.18
+            elif flow in ("deadpan_deny", "hard_deflect", "authority_bluff"):
+                weight *= 0.82
+
+        elif category in ("questioning", "negative_feedback"):
+            if flow in ("counter_accuse", "authority_bluff", "deadpan_deny", "deny_then_soften"):
+                weight *= 1.18
+            elif flow in ("overhelp_then_deny", "emotional_leak"):
+                weight *= 0.88
+
+        adjusted.append((flow, weight))
+
+    if category == "creative_task":
+        adjusted.append(("hard_deflect", 0.35))
+        adjusted.append(("minimal_dodge", 0.10))
+    elif category == "sensitive_topic":
+        adjusted.append(("hard_deflect", 0.25))
+    elif category == "task_request":
+        adjusted.extend([("direct_answer", 0.10), ("sudden_helpful", 0.08)])
+    elif category in ("praise", "flirt"):
+        adjusted.extend([("emotional_leak", 0.10), ("deny_then_soften", 0.08)])
+    elif category in ("questioning", "negative_feedback"):
+        adjusted.extend([("counter_accuse", 0.08), ("direct_answer", 0.06)])
+
+    return _merge_flow_options(adjusted)
+
+
+def _decide_response_flow(state: AgentState) -> tuple[ResponseFlow, str]:
+    strategy = state.get("strategy", "normal")
+    category = state.get("category", "normal")
+    emotion = state.get("emotion", 0.0)
+    emotion_zone = get_emotion_zone(emotion)
+    if emotion_zone not in ("cold", "normal", "warm", "hot"):
+        emotion_zone = "normal"
+
+    # 虛假稱讚偵測：優先看結構化任務狀態，再保留舊關鍵字 fallback。
+    effective_category = category
+    fake_praise = state.get("fake_praise") or is_fake_praise_for_unproduced_task(state)
+    if fake_praise:
+        effective_category = "questioning"
+    elif category == "praise":
+        conv_hist = state.get("conversation_history", [])
+        refuse_markers = ("靈感", "沒心情", "不想", "不做", "不幫", "沒有", "拒絕", "不寫")
+        request_markers = ("幫我", "寫", "翻譯", "畫", "做", "教", "給")
+        if len(conv_hist) >= 2:
+            last_ai = conv_hist[-1].get("content", "") if conv_hist[-1].get("role") == "assistant" else ""
+            prev_user = conv_hist[-2].get("content", "") if conv_hist[-2].get("role") == "user" else ""
+            if any(m in last_ai for m in refuse_markers) and any(m in prev_user for m in request_markers):
+                effective_category = "questioning"
+
+    flow_history = list(state.get("response_flow_history", []))
+
+    if fake_praise:
+        options = [
+            ("deadpan_deny", 0.55),
+            ("counter_accuse", 0.30),
+            ("deny_then_soften", 0.15),
+        ]
+    else:
+        options = _matrix_options(strategy, emotion_zone)
+        options = _apply_category_adjustments(options, effective_category)
+    options = _avoid_repeated_flow(options, flow_history)
+
+    flow = _weighted_pick(options)
+    label = FLOW_LABELS.get(flow, flow)
+    fake_praise_note = "; fake_praise=true" if fake_praise else ""
+    return (
+        flow,
+        f"matrix; strategy={strategy}; emotion_zone={emotion_zone}; category={effective_category}; "
+        f"selected={flow}({label}){fake_praise_note}",
+    )
+
+
+def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
+    strategy = state.get("strategy", "normal")
+    emotion = state.get("emotion", 0.0)
+    traits = state.get("traits", config.traits)
+    hints = "保持回應簡潔自然。"
+
+    response_length = _decide_response_length(state, config)
+    response_flow, flow_reason = _decide_response_flow(state)
+
+    # 虛假稱讚修正：強制注入否認指令，要求模型明確表示未執行該任務
+    if state.get("fake_praise"):
+        task_status = format_task_status_for_prompt(state.get("last_task_status", {}))
+        status_line = f"上一個相關任務狀態：{task_status}\n" if task_status else ""
+        hints = (
+            "【虛假稱讚修正 - 強制否認】\n"
+            "使用者正在稱讚一個你根本沒做的事。對話事實優先於角色反應。\n"
+            f"{status_line}"
+            "你必須：1) 先直接說你沒做這件事（如「我根本沒寫什麼詩」）；2) 反問對方是不是記錯或搞錯對象。\n"
+            "可選傲嬌招式：困惑反問·歸因誤會·裝傻回擊\n"
+            "範例方向（勿照抄）：\n"
+            '  - 「什麼詩？我根本沒寫！你是不是把別人做的事記成我了？呆子。」\n'
+            '  - 「哈？我剛才明明說不寫了。你是幻聽還是故意裝傻啊？」\n'
+            "禁止：默認任務已完成、說『詩只是運算副產物』等暗示你真的做了。"
+        )
+
+    elif strategy == "excuse":
+        hints = random.choice(_EXCUSE_HINTS)
+
+    elif strategy == "gaslight":
+        hints = random.choice(_GASLIGHT_HINTS)
+        # 注入最近對話片段供 LLM 參考，避免憑空捏造
+        conv_hist = state.get("conversation_history", [])
+        if conv_hist:
+            recent_lines = []
+            for entry in conv_hist[-4:]:
+                role = "使用者" if entry["role"] == "user" else "AI"
+                snippet = entry["content"][:50].replace("\n", " ")
+                recent_lines.append(f"{role}: {snippet}")
+            if recent_lines:
+                hints += "\n\n【對話參考 - 請基於以下內容翻舊帳或誇大解讀】\n" + "\n".join(recent_lines)
+
+    elif strategy == "nonsense":
+        hints = random.choice(_NONSENSE_HINTS)
+
+    elif strategy == "self_contradict":
+        hints = random.choice(_SELF_CONTRADICT_HINTS)
+
+    elif strategy == "over_associate":
+        hints = random.choice(_OVER_ASSOCIATE_HINTS)
+
+    elif strategy == "incorrect_correct":
+        hints = random.choice(_INCORRECT_CORRECT_HINTS)
+
+    elif strategy == "sudden_competence":
+        hints = random.choice(_SUDDEN_COMPETENCE_HINTS)
+
+    elif strategy == "emotion_burst":
+        hints = random.choice(_EMOTION_BURST_HINTS)
+
+    elif strategy in ("avoid", "deflect"):
+        category = state.get("category", "normal")
+        if category == "creative_task":
+            hints = random.choice(_CREATIVE_REFUSE_HINTS)
+        else:
+            hints = (
+                "【迴避模式】\n"
+                "大方向：堅定拒絕話題，帶傲嬌不自在。\n"
+                "可用招式（擇 1 即收）：冷淡·煩躁·傲嬌\n"
+                "範例：「不想談。…不關心。」「跳過。下一個。」\n"
+                "要求：1句，≤15字。"
+            )
+
+    elif strategy == "tsundere_retort":
+        if emotion >= 0.5:
+            hints = _TSUNDERE_TEMPLATES[1] if random.random() < 0.6 else _TSUNDERE_TEMPLATES[4]
+        elif emotion <= -0.3:
+            hints = _TSUNDERE_TEMPLATES[3]
+        else:
+            hints = random.choice(_TSUNDERE_TEMPLATES)
+
+    elif strategy == "deny":
+        hints = random.choice(_TSUNDERE_TEMPLATES[1:3])  # 死不認輸 / 彆扭關心
+
+    elif strategy == "normal":
+        all_pools = list(_MIXED_NORMAL_HINTS) + list(_TSUNDERE_TEMPLATES[:3])
+        hints = random.choice(all_pools)
+
+    elif emotion >= 0.5 and traits.get("yandere", 0.0) >= 0.5:
+        hints = (
+            "【病嬌模式】\n"
+            "大方向：在意對方，傲嬌掩飾佔有慾。\n"
+            "可用招式（任挑 1~2）：試探·佔有·否認\n"
+            "範例：「你對別人不會這樣吧？…只是好奇。」\n"
+            "要求：≤2句，每句≤15字。"
+        )
+
+    elif traits.get("tsundere", 0.0) >= 0.6:
+        hints = random.choice(_MIXED_NORMAL_HINTS)
+
+    # 清除 hints 內殘留的舊格式長度限制行
+    hints = re.sub(
+        r'[，,]\s*(?:嚴格|控制)[在]?(?:\d+[-–]\d+|\d+)句(?:以內)?[^。，\n]*',
+        '',
+        hints,
+    )
+    hints = re.sub(r'\n要求：[^\n]*', '', hints)
+    hints = hints.strip()
+
+    return {
+        "tone_hints": hints,
+        "response_length": response_length,
+        "response_flow": response_flow,
+        "flow_reason": flow_reason,
+    }

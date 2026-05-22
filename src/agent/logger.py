@@ -98,7 +98,7 @@ def log_prompt(
     user_input: str,
     system_prompt: str,
     response: str,
-    strategy: str,
+    action_stance: str,
     emotion: float,
     model: Optional[str] = None,
     temperature: Optional[float] = None,
@@ -114,8 +114,7 @@ def log_prompt(
     judge_error: str = "",
     provider_history_count: Optional[int] = None,
     provider_history_preview: str = "",
-    response_flow: str = "",
-    flow_reason: str = "",
+    stance_reason: str = "",
 ) -> None:
     """
     記錄輸入輸出資訊到 prompts.md
@@ -128,7 +127,7 @@ def log_prompt(
         user_input=user_input,
         system_prompt=system_prompt,
         response=response,
-        strategy=strategy,
+        action_stance=action_stance,
         emotion=emotion,
         model=model,
         temperature=temperature,
@@ -144,8 +143,7 @@ def log_prompt(
         judge_error=judge_error,
         provider_history_count=provider_history_count,
         provider_history_preview=provider_history_preview,
-        response_flow=response_flow,
-        flow_reason=flow_reason,
+        stance_reason=stance_reason,
     )
 
 
@@ -193,7 +191,7 @@ def _write_markdown_log(
     user_input: str,
     system_prompt: str,
     response: str,
-    strategy: str,
+    action_stance: str,
     emotion: float,
     model: Optional[str] = None,
     temperature: Optional[float] = None,
@@ -209,8 +207,7 @@ def _write_markdown_log(
     judge_error: str = "",
     provider_history_count: Optional[int] = None,
     provider_history_preview: str = "",
-    response_flow: str = "",
-    flow_reason: str = "",
+    stance_reason: str = "",
 ) -> None:
     """
     將日誌以現代化 Markdown 格式寫入 prompts.md
@@ -218,11 +215,11 @@ def _write_markdown_log(
     Args:
         各參數同 log_prompt
     """
-    from agent.state import STRATEGY_EMOJI
+    from agent.state import STANCE_EMOJI
     
     emotion_bar = _fmt_emotion_bar_md(emotion)
     emotion_zone = _fmt_emotion_zone_md(emotion)
-    strategy_emoji = STRATEGY_EMOJI.get(strategy, f"❓ {strategy}")
+    stance_emoji = STANCE_EMOJI.get(action_stance, f"❓ {action_stance}")
     tone_label = _fmt_tone_label(tone) if tone else "未設定"
     
     md_entry = f"""
@@ -243,7 +240,7 @@ def _write_markdown_log(
 ### 📊 元數據
 | 項目 | 值 |
 |------|-----|
-| 🔀 行為 | {strategy_emoji} |
+| 🔀 行為 | {stance_emoji} |
 | 😊 情緒值 | {emotion_bar} |
 | 🌗 情緒區間 | {emotion_zone} |
 """
@@ -260,10 +257,8 @@ def _write_markdown_log(
         md_entry += "| 🗣️ 語氣 | 未設定 |\n"
     if defect_mode:
         md_entry += f"| 🎭 缺陷模式 | {defect_mode} |\n"
-    if response_flow:
-        md_entry += f"| 🧭 回答流程 | `{response_flow}` |\n"
-    if flow_reason:
-        md_entry += f"| 🧩 流程原因 | `{flow_reason}` |\n"
+    if stance_reason:
+        md_entry += f"| 🧩 行為原因 | `{stance_reason}` |\n"
     if ttfb_ms is not None:
         md_entry += f"| ⏱️ 首字延遲 | {ttfb_ms:.0f}ms |\n"
     else:

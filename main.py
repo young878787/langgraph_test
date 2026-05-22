@@ -55,30 +55,8 @@ def _fmt_emotion_trend(history: list[float]) -> str:
 
 
 def _fmt_defect_emoji(defect_mode: str) -> str:
-    emoji_map = {
-        "excuse": "🙅 找藉口",
-        "gaslight": "🎭 說謊",
-        "rambling": "💬 廢話",
-        "random_ramble": "🌀 跑題",
-        "tsundere": "😤 傲嬌",
-        "angry_denial": "🔥 否認",
-        "avoidance": "🫣 迴避",
-        "defend": "🛡️ 防禦",
-        "cooperative_for_once": "😇 配合",
-        "honest_defense": "🤷 誠實",
-        "yandere_protect": "💘 病嬌",
-        "self_contradict": "🔄 矛盾",
-        "over_associate": "🦋 聯想",
-        "incorrect_correct": "🤓 糾錯",
-        "sudden_competence": "✨ 正常",
-        "burst": "💥 噴泉",
-        "none": "😐 一般",
-        "normal": "😐 一般",
-        "emotion_burst": "💥 噴泉",
-        "error": "⚠️ 故障",
-        "tsundere_retort": "😤 傲嬌",
-    }
-    return emoji_map.get(defect_mode, f"❓ {defect_mode}")
+    from agent.state import STANCE_EMOJI
+    return STANCE_EMOJI.get(defect_mode, f"❓ {defect_mode}")
 
 
 def continuous_validation():
@@ -102,7 +80,7 @@ def continuous_validation():
     total = len(scenarios)
     prev_emotion = 0.0
     emotion_history: list[float] = []
-    strategy_history: list[str] = []
+    stance_history: list[str] = []
 
     if backend in ("google", "google_ai_studio", "gemini"):
         print(f"\n⏳ 使用 Google API，每輪約 2-5 秒...\n")
@@ -131,12 +109,11 @@ def continuous_validation():
             tone = "error"
             trigger = ""
             state["response"] = response
-            state["strategy"] = strategy
+            state["action_stance"] = "deadpan"
 
         curr_emotion = state.get("emotion", prev_emotion)
         emotion_delta = curr_emotion - prev_emotion
-        strategy = state.get("strategy", "error")
-        response_flow = state.get("response_flow", "")
+        stance = state.get("action_stance", "deadpan")
         tone = state.get("tone_hints", "")
         response = state.get("response", "")
         trigger = state.get("trigger", "")
@@ -172,8 +149,8 @@ def continuous_validation():
                 print(f"│     {response[i:i+66]}")
         print(f"│")
         print(f"│ 🎭 {_fmt_emotion_bar(curr_emotion)} {indicator} "
-              f"│ {_fmt_defect_emoji(strategy)} "
-              f"│ 策略:{strategy} │ 流程:{response_flow or '未設定'}")
+              f"│ {_fmt_defect_emoji(stance)} "
+              f"│ 姿態:{stance} │")
         if trigger:
             print(f"│ ⚡ 觸發詞: {trigger}")
         if fallback_used:
@@ -185,8 +162,8 @@ def continuous_validation():
             log_prompt(
                 scenario_id=idx, user_input=prompt,
                 system_prompt=str(state.get("system_prompt", "")),
-                response=response, strategy=strategy, tone=tone,
-                defect_mode=strategy, emotion=curr_emotion,
+                response=response, action_stance=stance, tone=tone,
+                defect_mode=stance, emotion=curr_emotion,
                 model=config.google_model if config.backend == "google" else config.openrouter_model,
                 temperature=config.temperature,
                 ttfb_ms=state.get("ttfb_ms"),
@@ -199,15 +176,14 @@ def continuous_validation():
                 judge_error=state.get("judge_error", ""),
                 provider_history_count=state.get("provider_history_count"),
                 provider_history_preview=state.get("provider_history_preview", ""),
-                response_flow=state.get("response_flow", ""),
-                flow_reason=state.get("flow_reason", ""),
+                stance_reason=state.get("flow_reason", ""),
             )
         except Exception as e:
             log_error(module="main", function="continuous_validation", error=e,
                       context={"turn": idx, "reason": "log_prompt_failed"})
 
         emotion_history.append(curr_emotion)
-        strategy_history.append(strategy)
+        stance_history.append(stance)
         prev_emotion = curr_emotion
 
     print(f"{'=' * 80}")
@@ -222,7 +198,7 @@ def continuous_validation():
 
     print(f"\n🧠 策略分佈:")
     from collections import Counter
-    strat_counts = Counter(strategy_history)
+    strat_counts = Counter(stance_history)
     for s, c in strat_counts.most_common():
         bar_w = max(1, int(c / total * 20))
         print(f"  {_fmt_defect_emoji(s):<12} {'█' * bar_w} {c}次")
@@ -340,9 +316,9 @@ def interactive_chat():
                     scenario_id=chat_counter, user_input=user_input,
                     system_prompt=str(state.get("system_prompt", "")),
                     response=state.get("response", ""),
-                    strategy=state.get("strategy", "unknown"),
+                    action_stance=state.get("action_stance", "unknown"),
                     tone=state.get("tone_hints", ""),
-                    defect_mode=state.get("strategy", "unknown"),
+                    defect_mode=state.get("action_stance", "unknown"),
                     emotion=state.get("emotion", 0.0),
                     model=config.google_model if config.backend == "google" else config.openrouter_model,
                     temperature=config.temperature,
@@ -514,7 +490,7 @@ def continuous_chat_mode():
                 print(f"\n🤖 AI: {response}")
 
             curr_emotion = state.get("emotion", 0.0)
-            strategy = state.get("strategy", "unknown")
+            stance = state.get("action_stance", "unknown")
             trigger = state.get("trigger", "")
             ch_len = len(state.get("conversation_history", []))
 
@@ -524,9 +500,9 @@ def continuous_chat_mode():
                     user_input=user_input,
                     system_prompt=str(state.get("system_prompt", "")),
                     response=state.get("response", ""),
-                    strategy=strategy,
+                    action_stance=stance,
                     tone=state.get("tone_hints", ""),
-                    defect_mode=strategy,
+                    defect_mode=stance,
                     emotion=curr_emotion,
                     model=config.google_model if config.backend == "google" else config.openrouter_model,
                     temperature=config.temperature,
@@ -578,6 +554,12 @@ def continuous_chat_mode():
 def main():
     init_logs()
     print("📝 日誌系統已初始化 (logs/error.log, logs/prompts.md)")
+
+    import sys
+    if "--continuous" in sys.argv:
+        config = AgentConfig()
+        continuous_validation()
+        return
 
     config = AgentConfig()
     if config.backend == "openrouter":

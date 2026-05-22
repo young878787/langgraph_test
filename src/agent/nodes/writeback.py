@@ -41,20 +41,16 @@ def _summarize_worker(provider, messages: list[dict], existing_summary: str, res
 
 
 def writeback(state: AgentState) -> AgentState:
-    strategy = state.get("strategy", "normal")
-    history = list(state.get("strategy_history", []))
-    history.append(strategy)
-
-    response_flow = state.get("response_flow", "direct_answer")
-    response_flow_history = list(state.get("response_flow_history", []))
-    response_flow_history.append(response_flow)
+    stance = state.get("action_stance", "tsundere_service")
+    stance_history = list(state.get("stance_history", []))
+    stance_history.append(stance)
 
     trigger_counters = dict(state.get("trigger_counters", {}))
     trigger = state.get("trigger")
     if trigger:
         trigger_counters[trigger] = trigger_counters.get(trigger, 0) + 1
 
-    if strategy == "emotion_burst":
+    if stance == "emotion_burst":
         trigger_counters = {}
 
     emotion = state.get("emotion", 0.0)
@@ -148,9 +144,9 @@ def writeback(state: AgentState) -> AgentState:
                 break
 
     status_flags = []
-    if strategy == "gaslight":
-        status_flags.append("gaslight")
-    if strategy == "emotion_burst":
+    if stance == "authoritative_bluffing":
+        status_flags.append("bluffing")
+    if stance == "emotion_burst":
         status_flags.append("burst")
     task_status_summary = format_task_status_for_summary(last_task_status)
     if task_status_summary:
@@ -159,7 +155,7 @@ def writeback(state: AgentState) -> AgentState:
         status_flags.append(f"topic:{last_topic}")
 
     history_summary = (
-        f"turn={turn_count}; strategy={strategy}; flow={response_flow}; "
+        f"turn={turn_count}; stance={stance}; "
         f"emotion={emotion:.2f}; trigger={trigger or 'none'}; "
         f"total_triggers={total_triggers}"
     )
@@ -168,8 +164,7 @@ def writeback(state: AgentState) -> AgentState:
 
     # ── Step 6: 回寫狀態 ──
     result: AgentState = {
-        "strategy_history": history,
-        "response_flow_history": response_flow_history,
+        "stance_history": stance_history,
         "trigger_counters": trigger_counters,
         "history_summary": history_summary,
         "burst_pending": False,
