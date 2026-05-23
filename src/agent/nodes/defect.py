@@ -19,6 +19,8 @@ def decide_defect_strategy(state: AgentState, config: AgentConfig) -> AgentState
         stance = "defensive_counter" if emotion_high else "dismissive"
     elif category == "negative_feedback":
         stance = "defensive_counter" if emotion_high else "tsundere_service"
+    elif category == "farewell":
+        stance = random.choice(["tsundere_service", "dismissive"])
     elif category == "praise":
         stance = "vulnerable_leak" if emotion_high else "tsundere_service"
     elif category == "flirt":

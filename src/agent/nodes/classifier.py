@@ -20,6 +20,13 @@ def classify_input(state: AgentState, config: AgentConfig) -> AgentState:
             break
 
     if category == "normal":
+        for kw in config.farewell_keywords:
+            if kw in text:
+                category = "farewell"
+                trigger = kw
+                break
+
+    if category == "normal":
         for kw in config.flirt_keywords:
             if kw in text:
                 category = "flirt"

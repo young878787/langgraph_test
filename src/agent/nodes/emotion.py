@@ -12,8 +12,9 @@ DELTA_MAP = {
     "sensitive_topic": 0.35,
     "task_request": 0.1,
     "questioning": 0.2,
-    "praise": -0.15,
+    "praise": 0.05,
     "flirt": -0.10,
+    "farewell": -0.05,
 }
 
 TSUNDERE_BONUS = 0.15

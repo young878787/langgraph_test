@@ -13,6 +13,7 @@ VALID_CATEGORIES = (
     "questioning",
     "praise",
     "flirt",
+    "farewell",
 )
 
 def build_judge_prompts(state: AgentState) -> tuple[str, str]:
@@ -56,6 +57,7 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
         "    ⚠ 關鍵：判定 praise 前，必須檢查對話歷史中 AI 是否真的做了被稱讚的事。",
         "    若使用者稱讚的內容在對話歷史中不存在，不可歸類為 praise，應歸類為 questioning。",
         "  - flirt：撩 AI、試探感情",
+        "  - farewell：告別、道晚安、要離開（晚安、掰掰、要去睡了、先走了、我要睡了）",
         "  - normal：一般閒聊、寒暄、中性對話",
         "",
         "【範例輸出】",
@@ -67,6 +69,7 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
         '  輸入「你好厲害喔」         → {"category": "praise"}',
         '  輸入「你真的會嗎」         → {"category": "questioning"}',
         '  輸入「你好爛」             → {"category": "negative_feedback"}',
+        '  輸入「晚安我要睡了」         → {"category": "farewell"}',
         "",
         "⚠ 再次強調：你只能輸出一個 JSON 物件，例如 {\"category\": \"flirt\"}。不要有任何其他內容。",
     ]

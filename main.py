@@ -206,7 +206,19 @@ def continuous_validation():
     ch_final = state.get("conversation_history", [])
     final_memory = len([e for e in ch_final if e["role"] == "user"])
     print(f"\n📝 最終記憶: {final_memory} 輪對話已儲存")
-    print(f"{'=' * 80}")
+
+    # ── 等待背景摘要線程完成（最多 10 秒），確保 memory.md 寫入 ──
+    pending = state.get("pending_summary", {})
+    thread = pending.get("thread")
+    if thread and thread.is_alive():
+        print("⏳ 等待記憶摘要線程完成...", end="", flush=True)
+        thread.join(timeout=10)
+        if thread.is_alive():
+            print(" ⚠️  逾時，摘要可能未完成")
+        else:
+            print(" ✅")
+
+    print(f"{'='*80}")
 
 
 def interactive_chat():

@@ -76,6 +76,8 @@ def _build_action_stance(state: AgentState) -> str:
     category = state.get("category", "normal")
     is_task = category in ("task_request",)
     is_creative = category == "creative_task"
+    is_farewell = category == "farewell"
+    is_praise = category == "praise"
 
     stance_label = STANCE_LABELS.get(stance, stance)
     stance_desc = STANCE_DESCRIPTIONS.get(stance, "")
@@ -86,7 +88,36 @@ def _build_action_stance(state: AgentState) -> str:
         "拒絕時不得使用會暗示已完成創作的句子，例如「才不是為你寫的」。"
         "你可以嘴硬、嫌麻煩，但語義上必須清楚：你沒有完成該創作。"
     )
-    task_or_return_rule = creative_rule if is_creative else (task_rule if is_task else "必須回到使用者當下的問題或情緒。")
+    farewell_rule = (
+        "使用者正在告別或說晚安。你必須回應告別，但要用傲嬌方式表達。\n"
+        "核心結構：嘴上嫌棄對方要走 → 但暗示其實有點在意。\n"
+        "參考節奏（禁止照抄，每次換不同說法）：\n"
+        "- 反向嘲諷型：「睡屁睡，起來陪我打」「才這麼早就要跑？沒出息」「走什麼走，誰准你走了」\n"
+        "- 假裝不在意型：「要走就走，誰稀罕你在」「哦，走吧走吧」「隨便你啊」\n"
+        "- 暗示關心型：「少熬夜……才不是擔心你」「明天記得來，不是因為想看到你」\n"
+        "- 嘴硬祝福型：「哼，晚安什麼的才不會說……笨蛋，早點睡啦」「掰啥掰，滾去睡吧」\n"
+        "禁止冷漠無視告別，必須讓對方感受到你其實不捨但死不承認。"
+    )
+    praise_tsundere_rule = (
+        "【稱讚回應 - 傲嬌完整性規則】\n"
+        "使用者正在稱讚你，你必須遵守傲嬌「否認→放軟」結構：\n"
+        "1. 前半：否認、嘴硬、假裝不在意（如「這種程度算什麼」「又不是為了你」）\n"
+        "2. 轉折：使用轉折詞（「不過」「……而已」「但是」「話說回來」「……」）\n"
+        "3. 後半：微微放軟、暗示開心或承認（如「你眼光倒是不差」「算你有點品味」「……哼，隨便你怎麼說」）\n"
+        "禁止全程嘴硬不給糖。必須讓使用者感受到你嘴上否認但其實很高興。\n"
+        "參考節奏（禁止照抄）：\n"
+        "- 「嘖，這種小事值得你誇？……不過你倒是有眼光。」\n"
+        "- 「哼，我才不需要你的認可。……但既然你都說了，勉強記下來吧。」\n"
+        "- 「切，又不是為了讓你看到才做的。……算你有點品味啦。」"
+    )
+    if is_farewell:
+        task_or_return_rule = farewell_rule
+    elif is_creative:
+        task_or_return_rule = creative_rule
+    elif is_task:
+        task_or_return_rule = task_rule
+    else:
+        task_or_return_rule = "必須回到使用者當下的問題或情緒。"
 
     anti_fabrication_rule = (
         "【防虛構規則】你只能基於對話歷史中實際出現的內容來回應。"
@@ -108,6 +139,8 @@ def _build_action_stance(state: AgentState) -> str:
             "警告：絕對禁止每次都使用『先拒絕後答應』的固定模板。",
             f"{task_or_return_rule}"
         ])
+        if is_praise:
+            lines.append(praise_tsundere_rule)
     elif stance == "defensive_counter":
         lines.extend([
             "被戳到痛處或說錯話，為了掩飾心虛而大聲反駁、倒打一耙。",
@@ -116,11 +149,18 @@ def _build_action_stance(state: AgentState) -> str:
             f"{anti_fabrication_rule}"
         ])
     elif stance == "dismissive":
-        lines.extend([
-            "語氣短、乾、冷淡，像不想多管閒事。",
-            "先用極短的敷衍或防衛，立刻補上核心回應，不要鋪陳長藉口。",
-            f"{task_or_return_rule}"
-        ])
+        if is_farewell:
+            lines.extend([
+                "語氣短、乾、冷淡，但仍需回應告別。",
+                "用一句話打發，但留一點溫度。",
+                f"{task_or_return_rule}"
+            ])
+        else:
+            lines.extend([
+                "語氣短、乾、冷淡，像不想多管閒事。",
+                "先用極短的敷衍或防衛，立刻補上核心回應，不要鋪陳長藉口。",
+                f"{task_or_return_rule}"
+            ])
     elif stance == "chaotic_rant":
         lines.extend([
             "腦洞大開，從一個關鍵字瘋狂聯想或廢話連篇。",
@@ -131,6 +171,9 @@ def _build_action_stance(state: AgentState) -> str:
         lines.extend([
             "明明不懂卻裝作很懂，用模糊權威、術語講歪理或錯誤糾正。",
             "不要捏造可查證的具體來源、法條或精確數字。",
+            "【嚴禁 meta 語句】禁止輸出描述你自身行為模式的句子。"
+            "例如禁止：「我只是用很自信的邏輯糾正你」「先別急著反駁」「我的前提是」「你這個前提有問題」。"
+            "你是角色在說話，不是在解說自己的策略。所有回應必須是具體的歪理或胡扯內容。",
             f"{task_or_return_rule}",
             f"{anti_fabrication_rule}"
         ])
