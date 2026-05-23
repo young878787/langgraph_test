@@ -10,6 +10,7 @@ LOG_DIR = Path(__file__).parent.parent.parent / "logs"
 ERROR_LOG = LOG_DIR / "error.log"
 PROMPT_MD = LOG_DIR / "prompts.md"
 MEMORY_MD = LOG_DIR / "memory.md"
+WORLD_STATE_MD = LOG_DIR / "world_state.md"
 
 
 def init_logs() -> None:
@@ -53,6 +54,13 @@ def init_logs() -> None:
             f.flush()
     except Exception as e:
         print(f"警告：無法初始化記憶日誌 {MEMORY_MD}: {e}")
+
+    try:
+        with open(WORLD_STATE_MD, "w", encoding="utf-8") as f:
+            f.write("# 🌍 世界狀態與共同事件 (World State)\n\n")
+            f.flush()
+    except Exception:
+        pass
 
 
 def log_error(

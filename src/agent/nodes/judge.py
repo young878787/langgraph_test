@@ -56,6 +56,8 @@ def _run_smart_fallback(state: AgentState, config: AgentConfig) -> AgentState:
     if fake_praise:
         category = "questioning"
 
+    requires_action = category in ("task_request", "creative_task")
+
     return {
         **classification,
         "category": category,
@@ -64,6 +66,10 @@ def _run_smart_fallback(state: AgentState, config: AgentConfig) -> AgentState:
         "judge_raw_response": "",
         "judge_error": "",
         "fake_praise": fake_praise,
+        "ambiguous_flag": bool(classification.get("ambiguous_flag")) or fake_praise,
+        "sarcasm_possible": False,
+        "requires_action": requires_action,
+        "intent_target": "assistant" if category != "normal" else "unknown",
     }
 
 
@@ -82,18 +88,19 @@ def _safe_llm_call(provider, system_prompt, user_prompt, temperature, max_output
 
 def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
     base_classification = classify_input(state, config)
+    judge_state = {**state, **base_classification}
 
-    system_prompt, user_prompt = build_judge_prompts(state)
+    system_prompt, user_prompt = build_judge_prompts(judge_state)
     provider = get_provider(config)
 
     judge_error = ""
     raw1 = _safe_llm_call(provider, system_prompt, user_prompt, config.judge_temperature, config.judge_max_output_tokens, json_mode=True)
-    decision, judge_error = parse_judge_output_v2(raw1 or "")
-    if decision is None:
+    decision_data, judge_error = parse_judge_output_v2(raw1 or "")
+    if decision_data is None:
         raw2 = _safe_llm_call(provider, system_prompt, user_prompt, config.judge_temperature, config.judge_max_output_tokens, json_mode=True)
-        decision, judge_error = parse_judge_output_v2(raw2 or "")
+        decision_data, judge_error = parse_judge_output_v2(raw2 or "")
 
-    if decision is None:
+    if decision_data is None:
         result = _run_smart_fallback(state, config)
         result["judge_error"] = judge_error or "Judge LLM 連續兩次呼叫失敗"
         result["judge_raw_response"] = _fmt_judge_raw(raw1, raw2)
@@ -102,7 +109,7 @@ def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
         stance_result = decide_defect_strategy(merged_state, config)
         return {**result, **stance_result}
 
-    category = decision
+    category = decision_data.get("category", "normal")
     fake_praise = _check_fake_praise(state)
     if fake_praise:
         category = "questioning"
@@ -111,11 +118,17 @@ def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
         "category": category,
         "classifier_category": base_classification.get("category", "normal"),
         "trigger": base_classification.get("trigger", ""),
+        "keyword_signals": base_classification.get("keyword_signals", []),
+        "keyword_confidence": base_classification.get("keyword_confidence", "none"),
         "uncertain_flag": base_classification.get("uncertain_flag", False),
         "judge_source": "llm",
         "judge_raw_response": raw1 or "",
         "judge_error": "",
         "fake_praise": fake_praise,
+        "ambiguous_flag": bool(decision_data.get("ambiguous_flag")) or bool(base_classification.get("ambiguous_flag")) or fake_praise,
+        "sarcasm_possible": bool(decision_data.get("sarcasm_possible")),
+        "requires_action": bool(decision_data.get("requires_action")),
+        "intent_target": decision_data.get("intent_target", "unknown"),
     }
 
     merged_state = {**state, **result}

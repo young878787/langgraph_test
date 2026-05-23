@@ -207,7 +207,7 @@ def continuous_validation():
     final_memory = len([e for e in ch_final if e["role"] == "user"])
     print(f"\n📝 最終記憶: {final_memory} 輪對話已儲存")
 
-    # ── 等待背景摘要線程完成（最多 10 秒），確保 memory.md 寫入 ──
+    # ── 兼容舊版背景摘要線程（新版批次摘要會同步寫入 memory.md） ──
     pending = state.get("pending_summary", {})
     thread = pending.get("thread")
     if thread and thread.is_alive():

@@ -21,6 +21,8 @@ ActionStance = Literal[
 StreamPhase = Literal["opening", "just_chatting", "gaming", "superchat", "closing", "unknown"]
 
 JudgeSource = Literal["llm", "rule"]
+KeywordConfidence = Literal["none", "single", "mixed"]
+IntentTarget = Literal["assistant", "user", "third_party", "none", "unknown"]
 
 STANCE_LABELS: dict[str, str] = {
     "tsundere_service": "傲嬌勞碌命",
@@ -67,7 +69,13 @@ class AgentState(TypedDict, total=False):
     category: Category
     classifier_category: Category
     trigger: str
+    keyword_signals: List[Dict[str, str]]
+    keyword_confidence: KeywordConfidence
     uncertain_flag: bool
+    ambiguous_flag: bool
+    sarcasm_possible: bool
+    requires_action: bool
+    intent_target: IntentTarget
     emotion: float
     emotion_decay: float
     volatility: float
@@ -93,6 +101,7 @@ class AgentState(TypedDict, total=False):
     emotion_jitter: float
     burst_pending: bool
     conversation_history: List[Dict[str, str]]
+    memory_summary_buffer: List[Dict[str, str]]
     long_term_memory: str
     pending_summary: dict
     turn_count: int
@@ -126,11 +135,18 @@ def initial_state(config: AgentConfig) -> AgentState:
         "chat_vibe": "",
         "trigger_counters": {},
         "history_summary": "",
+        "keyword_signals": [],
+        "keyword_confidence": "none",
         "uncertain_flag": False,
+        "ambiguous_flag": False,
+        "sarcasm_possible": False,
+        "requires_action": False,
+        "intent_target": "unknown",
         "judge_source": "rule",
         "emotion_jitter": config.emotion_jitter,
         "burst_pending": False,
         "conversation_history": [],
+        "memory_summary_buffer": [],
         "long_term_memory": "",
         "pending_summary": {},
         "last_task_status": {},

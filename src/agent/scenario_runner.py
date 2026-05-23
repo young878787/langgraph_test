@@ -187,7 +187,7 @@ def run_continuous_scenario() -> None:
     final_turns = len([e for e in ch_final if e["role"] == "user"])
     print(f"📊 連續對話完成: {final_turns} 輪 | 最終情緒: {final_emotion:+.3f}")
 
-    # ── 等待背景摘要線程完成（最多 10 秒），確保 memory.md 寫入 ──
+    # ── 兼容舊版背景摘要線程（新版批次摘要會同步寫入 memory.md） ──
     pending = state.get("pending_summary", {})
     thread = pending.get("thread")
     if thread and thread.is_alive():

@@ -16,11 +16,32 @@ VALID_CATEGORIES = (
     "farewell",
 )
 
+VALID_INTENT_TARGETS = ("assistant", "user", "third_party", "none", "unknown")
+
+
+def _format_keyword_signals(state: AgentState) -> str:
+    signals = state.get("keyword_signals", [])
+    if not signals:
+        return "無"
+
+    parts = []
+    for signal in signals[:8]:
+        category = signal.get("category", "unknown")
+        trigger = signal.get("trigger", "")
+        parts.append(f"{category}:{trigger}")
+    omitted = len(signals) - len(parts)
+    if omitted > 0:
+        parts.append(f"...另 {omitted} 個")
+    return "；".join(parts)
+
+
 def build_judge_prompts(state: AgentState) -> tuple[str, str]:
     emotion = state.get("emotion", 0.0)
     traits = state.get("traits", {})
     conversation_history = state.get("conversation_history", [])
     task_status = format_task_status_for_prompt(state.get("last_task_status", {}))
+    keyword_signals = _format_keyword_signals(state)
+    keyword_confidence = state.get("keyword_confidence", "none")
 
     traits_text = "無"
     if traits:
@@ -42,10 +63,15 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
         "",
         "【輸出格式 - 嚴格遵守】",
         "只輸出一個 JSON 物件，不要任何其他文字、解釋、markdown 或換行以外的內容。",
-        '  格式：{"category": "<分類>"}',
+        '  格式：{"category": "<分類>", "ambiguous": false, "sarcasm_possible": false, "requires_action": false, "target": "assistant"}',
         f"  category 必須是以下之一：{cats}",
+        "  ambiguous / sarcasm_possible / requires_action 必須是 boolean。",
+        f"  target 必須是以下之一：{', '.join(VALID_INTENT_TARGETS)}",
         "",
         "【分類規則】",
+        "  - 關鍵字只是 evidence，不是最終判決。若關鍵字與完整語境衝突，必須以語境為準。",
+        "  - 若一句話同時有稱讚、質疑、任務、撩人等訊號，請標 ambiguous=true，並選擇最能代表本輪回應義務的 category。",
+        "  - 若稱讚語句帶有挖苦、反問、前後矛盾或「連這都不會」一類語氣，請標 sarcasm_possible=true，通常不要歸類為 praise。",
         "  - creative_task：要求 AI 創作（寫詩、寫故事、作曲、翻譯、寫程式、畫畫、寫文案）。",
         "  - task_request：要求 AI 做具體任務（幫忙、教學、查詢、計算、解釋）。",
         "    ⚠ 若涉及創作，請歸類為 creative_task。",
@@ -60,16 +86,17 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
         "  - farewell：告別、道晚安、要離開（晚安、掰掰、要去睡了、先走了、我要睡了）",
         "  - normal：一般閒聊、寒暄、中性對話",
         "",
+        "【欄位判斷】",
+        "  - requires_action：使用者是否真的要求 AI 完成任務或回答問題。",
+        "  - target：使用者主要是在對誰說話。稱讚/質疑 AI 時為 assistant；自述需求時可為 user；談第三方時為 third_party。",
+        "",
         "【範例輸出】",
-        '  輸入「你好嗎」             → {"category": "normal"}',
-        '  輸入「你是不是在意我」     → {"category": "flirt"}',
-        '  輸入「幫我寫詩」           → {"category": "creative_task"}',
-        '  輸入「幫我翻譯這段」       → {"category": "creative_task"}',
-        '  輸入「1+1等於多少」       → {"category": "task_request"}',
-        '  輸入「你好厲害喔」         → {"category": "praise"}',
-        '  輸入「你真的會嗎」         → {"category": "questioning"}',
-        '  輸入「你好爛」             → {"category": "negative_feedback"}',
-        '  輸入「晚安我要睡了」         → {"category": "farewell"}',
+        '  輸入「你好嗎」             → {"category": "normal", "ambiguous": false, "sarcasm_possible": false, "requires_action": false, "target": "assistant"}',
+        '  輸入「你是不是在意我」     → {"category": "flirt", "ambiguous": false, "sarcasm_possible": false, "requires_action": false, "target": "assistant"}',
+        '  輸入「幫我寫詩」           → {"category": "creative_task", "ambiguous": false, "sarcasm_possible": false, "requires_action": true, "target": "assistant"}',
+        '  輸入「1+1等於多少」       → {"category": "task_request", "ambiguous": false, "sarcasm_possible": false, "requires_action": true, "target": "assistant"}',
+        '  輸入「你好厲害喔，連這都不會」 → {"category": "questioning", "ambiguous": true, "sarcasm_possible": true, "requires_action": false, "target": "assistant"}',
+        '  輸入「晚安我要睡了」       → {"category": "farewell", "ambiguous": false, "sarcasm_possible": false, "requires_action": false, "target": "assistant"}',
         "",
         "⚠ 再次強調：你只能輸出一個 JSON 物件，例如 {\"category\": \"flirt\"}。不要有任何其他內容。",
     ]
@@ -77,6 +104,8 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
     user_lines = [
         f"上一段對話：\n{history_context}" if history_context else "（尚無對話歷史）",
         f"使用者現在說：{state.get('user_input', '')}",
+        f"Keyword evidence：{keyword_signals}",
+        f"Keyword confidence：{keyword_confidence}",
         f"當前情緒值：{emotion:.3f}（-1=冷靜, 1=激動）",
         f"人格特質：{traits_text}",
         f"上一個任務狀態：{task_status or '無'}",
