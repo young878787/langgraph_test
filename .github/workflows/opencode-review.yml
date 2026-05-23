@@ -1,0 +1,30 @@
+name: opencode-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: anomalyco/opencode/github@latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          model: opencode-go/deepseek-v4-pro
+          use_github_token: true
+          prompt: |
+            請以「繁體中文」進行 Code Review，並著重於以下幾點：
+            1. **PR 內容總結**：以條列式清晰整理此次 PR 異動的主要內容，方便快速掌握重點。
+            2. **邏輯檢查與收斂**：檢查新增的程式碼是否有錯誤、潛在 Bug，或邏輯偏離的情況。若設計過度發散，請提供收斂的建議。
+            3. **改進建議**：如有需要，提出具體且可執行的修正或優化方案。
