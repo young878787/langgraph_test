@@ -4,94 +4,62 @@ from typing import Dict, List, Literal, TypedDict
 
 from agent.config import AgentConfig
 
-Category = Literal["normal", "negative_feedback", "sensitive_topic", "task_request", "creative_task", "questioning", "praise", "flirt"]
+Category = Literal["normal", "negative_feedback", "sensitive_topic", "task_request", "creative_task", "questioning", "praise", "flirt", "farewell"]
 ResponseLength = Literal["short", "medium", "long", "long_long"]
-ResponseFlow = Literal[
-    "direct_answer",
-    "dry_answer",
-    "dodge_first",
-    "minimal_dodge",
-    "tease_then_answer",
-    "sudden_helpful",
-    "emotional_leak",
-    "deny_then_soften",
-    "topic_bounce",
-    "overhelp_then_deny",
-    "authority_bluff",
-    "deadpan_deny",
-    "counter_accuse",
-    "spiral_rant",
-    "slip_then_cover",
-    "burst_then_comply",
-    "hard_deflect",
-]
-Strategy = Literal[
-    "normal",
-    "avoid",
-    "deflect",
-    "defend",
-    "deny",
-    "tsundere_retort",
-    "excuse",
-    "gaslight",
-    "nonsense",
-    "self_contradict",
-    "over_associate",
-    "incorrect_correct",
+
+ActionStance = Literal[
+    "tsundere_service",
+    "defensive_counter",
+    "dismissive",
+    "chaotic_rant",
+    "authoritative_bluffing",
+    "vulnerable_leak",
     "sudden_competence",
     "emotion_burst",
+    "deadpan"
 ]
+StreamPhase = Literal["opening", "just_chatting", "gaming", "superchat", "closing", "unknown"]
+
 JudgeSource = Literal["llm", "rule"]
+KeywordConfidence = Literal["none", "single", "mixed"]
+IntentTarget = Literal["assistant", "user", "third_party", "none", "unknown"]
 
-STRATEGY_LABELS: dict[str, str] = {
-    "normal": "平常",
-    "avoid": "迴避",
-    "deflect": "轉移話題",
-    "defend": "防禦",
-    "deny": "憤怒否認",
-    "tsundere_retort": "傲嬌反擊",
-    "excuse": "找藉口",
-    "gaslight": "說謊",
-    "nonsense": "廢話",
-    "self_contradict": "自相矛盾",
-    "over_associate": "過度聯想",
-    "incorrect_correct": "錯誤糾正",
-    "sudden_competence": "突然正常",
-    "emotion_burst": "情緒噴泉",
+STANCE_LABELS: dict[str, str] = {
+    "tsundere_service": "傲嬌勞碌命",
+    "defensive_counter": "心虛反咬",
+    "dismissive": "敷衍打發",
+    "chaotic_rant": "暴走聯想",
+    "authoritative_bluffing": "一本正經胡說八道",
+    "vulnerable_leak": "真心漏出",
+    "sudden_competence": "突然專業",
+    "emotion_burst": "情緒大暴走",
+    "deadpan": "冷面句點",
+    "error": "系統錯誤",
 }
 
-STRATEGY_DESCRIPTIONS: dict[str, str] = {
-    "normal": "平常的嘴硬心軟，否認完會偷偷幫忙",
-    "avoid": "禮貌但堅定地拒絕談論，帶一點不自在",
-    "deflect": "轉移話題，不正面回應",
-    "defend": "為自己辯護，但語氣中透露在意",
-    "deny": "強烈否認，情緒化反擊",
-    "tsundere_retort": "嘴硬心軟，用帶刺的話掩飾真心話",
-    "excuse": "找各種荒唐藉口推託",
-    "gaslight": "用假事實誤導，倒打一耙",
-    "nonsense": "廢話連篇，完全跑題",
-    "self_contradict": "先答應再反悔，讓使用者坐雲霄飛車",
-    "over_associate": "從關鍵字瘋狂聯想到不相關的事",
-    "incorrect_correct": "用捏造的知識硬要糾正使用者",
-    "sudden_competence": "罕見地給出專業回答，然後立刻後悔",
-    "emotion_burst": "累積壓力後爆炸式坦承，然後秒傲嬌收回",
+STANCE_DESCRIPTIONS: dict[str, str] = {
+    "tsundere_service": "嘴巴上嫌棄、吐槽或先拒絕，但最後還是給出超出預期的好答案",
+    "defensive_counter": "被戳到痛處破防，為了掩飾心虛而大聲反駁、倒打一耙",
+    "dismissive": "對話題沒興趣，用語句短冷的方式隨便打發，假裝沒聽到",
+    "chaotic_rant": "腦洞大開、轉移話題，從一個關鍵字瘋狂展開到完全不相干的事情",
+    "authoritative_bluffing": "明明不懂卻裝作很懂，用看似專業的術語講歪理或錯誤糾正",
+    "vulnerable_leak": "不小心流露真實情感（開心/難過/在意），然後立刻手忙腳亂掩飾",
+    "sudden_competence": "罕見地變得極度可靠、認真且專業，與平常脫線形成反差",
+    "emotion_burst": "情緒累積到極點的誇張爆發，崩潰大喊後再委屈地照做",
+    "deadpan": "沒有情緒波動的冷面回應，字句平直，一針見血，直接句點",
+    "error": "系統錯誤或無法辨識",
 }
 
-STRATEGY_EMOJI: dict[str, str] = {
-    "normal": "😐 平常",
-    "avoid": "🫣 迴避",
-    "deflect": "🫣 轉移",
-    "defend": "🛡️ 防禦",
-    "deny": "🔥 否認",
-    "tsundere_retort": "😤 傲嬌",
-    "excuse": "🙅 找藉口",
-    "gaslight": "🎭 說謊",
-    "nonsense": "💬 廢話",
-    "self_contradict": "🔄 矛盾",
-    "over_associate": "🦋 聯想",
-    "incorrect_correct": "🤓 糾錯",
-    "sudden_competence": "✨ 正常",
-    "emotion_burst": "💥 噴泉",
+STANCE_EMOJI: dict[str, str] = {
+    "tsundere_service": "😤 傲嬌",
+    "defensive_counter": "🔥 反咬",
+    "dismissive": "🙄 敷衍",
+    "chaotic_rant": "🌪️ 暴走",
+    "authoritative_bluffing": "🤓 裝懂",
+    "vulnerable_leak": "😳 漏出",
+    "sudden_competence": "✨ 專業",
+    "emotion_burst": "💥 崩潰",
+    "deadpan": "😐 冷面",
     "error": "⚠️ 故障",
 }
 
@@ -101,17 +69,27 @@ class AgentState(TypedDict, total=False):
     category: Category
     classifier_category: Category
     trigger: str
+    keyword_signals: List[Dict[str, str]]
+    keyword_confidence: KeywordConfidence
     uncertain_flag: bool
+    ambiguous_flag: bool
+    sarcasm_possible: bool
+    requires_action: bool
+    intent_target: IntentTarget
     emotion: float
     emotion_decay: float
     volatility: float
     defect_intensity: float
     traits: Dict[str, float]
-    strategy: Strategy
-    strategy_history: List[Strategy]
-    response_flow: ResponseFlow
-    response_flow_history: List[ResponseFlow]
+    
+    action_stance: ActionStance
+    stance_history: List[ActionStance]
+    consecutive_same_stance: int
     flow_reason: str
+    
+    stream_phase: StreamPhase
+    chat_vibe: str
+
     tone_hints: str
     history_summary: str
     trigger_counters: Dict[str, int]
@@ -120,10 +98,10 @@ class AgentState(TypedDict, total=False):
     judge_raw_response: str
     judge_error: str
     system_prompt: str
-    consecutive_same_strategy: int
     emotion_jitter: float
     burst_pending: bool
     conversation_history: List[Dict[str, str]]
+    memory_summary_buffer: List[Dict[str, str]]
     long_term_memory: str
     pending_summary: dict
     turn_count: int
@@ -150,18 +128,25 @@ def initial_state(config: AgentConfig) -> AgentState:
         "volatility": config.volatility,
         "defect_intensity": config.defect_intensity,
         "traits": dict(config.traits),
-        "strategy_history": [],
-        "response_flow": "direct_answer",
-        "response_flow_history": [],
+        "stance_history": [],
+        "consecutive_same_stance": 0,
         "flow_reason": "initial",
+        "stream_phase": "unknown",
+        "chat_vibe": "",
         "trigger_counters": {},
         "history_summary": "",
+        "keyword_signals": [],
+        "keyword_confidence": "none",
         "uncertain_flag": False,
+        "ambiguous_flag": False,
+        "sarcasm_possible": False,
+        "requires_action": False,
+        "intent_target": "unknown",
         "judge_source": "rule",
-        "consecutive_same_strategy": 0,
         "emotion_jitter": config.emotion_jitter,
         "burst_pending": False,
         "conversation_history": [],
+        "memory_summary_buffer": [],
         "long_term_memory": "",
         "pending_summary": {},
         "last_task_status": {},

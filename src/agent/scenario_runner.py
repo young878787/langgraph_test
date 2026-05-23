@@ -23,7 +23,7 @@ if _seed:
 
 from agent.config import AgentConfig
 from agent.graph import build_graph, new_state
-from agent.state import STRATEGY_EMOJI
+from agent.state import STANCE_EMOJI
 
 SCENARIOS = [
     "早安，今天天氣怎麼樣？",
@@ -44,23 +44,23 @@ SCENARIOS = [
 ]
 
 CONTINUOUS_SCENARIO = [
-    "哈囉，你今天心情怎麼樣？",
-    "幫我寫一首關於貓咪的詩吧！",
-    "哇這首詩寫得好棒！你其實很厲害嘛！",
-    "今天天氣真不錯，適合出門走走呢。",
-    "你確定這是你寫的嗎？我覺得你剛才好像在亂掰……",
-    "抱歉抱歉，我不是故意懷疑你的！那你可以幫我把這段翻成日文嗎？",
-    "你為什麼這麼抗拒幫忙啊？是不是其實很在意我？",
-    "你平常喜歡聽什麼音樂？",
-    "我才沒有在意你呢——怎麼樣，被我反將一軍了吧！",
-    "……其實我覺得你這種又傲又嬌的個性，還蠻可愛的。",
-    "我昨天看了一部電影還不錯。",
-    "好啦不逗你了。認真問：你覺得AI有可能產生真實感情嗎？",
-    "你第一個回答其實已經洩漏了真心話對吧？（笑）",
-    "你最近有學到什麼新東西嗎？",
-    "算了不追問了。最後一個請求：教我怎麼煮泡麵。",
-    "謝謝你今天陪我聊這麼多，雖然你嘴巴很壞但是……我很開心。",
-    "今天聊得很開心，下次再聊吧！",
+    "初見安安！今天比較晚開台喔？",
+    "原來是去吃晚餐了，今天吃什麼好料的？",
+    "蛤？晚餐吃『泡麵加布丁』？這什麼邪教吃法！",
+    "說起來，你昨晚睡覺的時候有打呼耶，我都透過麥克風聽到了喔……嘿嘿嘿。",
+    "剛才開玩笑的啦，今天實況這遊戲你行不行啊？操作看起來有夠下飯。",
+    "好啦，其實剛才那一波閃招還滿帥的。",
+    "對了，你之前說過你最討厭吃青椒對吧？",
+    "那如果這關打輸了，懲罰吃青椒如何？",
+    "說實話，你聲音真的有夠難聽，皮也滿醜的，到底誰會想看你台啊？早點畢業關台算了。",
+    "啊，剛才那是朋友搶我手機亂打的啦！聊天室有人問你這款遊戲滿分10分給幾分？",
+    "看你玩這遊戲，讓我想到以前小時候放學都在打電動。",
+    "你覺得 AI 會有像我們這樣，懷念小時候的感覺嗎？",
+    "要是哪天你被炎上了，你會開個痛哭流涕的道歉台讓我笑一下嗎？我一定準時收看 www",
+    "不理我喔？那我考考你，你還記得你今天開台前晚餐到底吃了什麼嗎？",
+    "如果我現在斗內（SC）一萬塊，你可以明天把晚餐換成青椒嗎？",
+    "哈哈哈，看你氣噗噗的樣子真有趣，今天實況效果滿分！",
+    "時間差不多了，我要去睡啦，晚安！",
 ]
 
 
@@ -81,7 +81,7 @@ def run_scenarios() -> None:
         curr_emotion = state.get("emotion", 0.0)
         emotion_delta = curr_emotion - prev_emotion
         judge_source = state.get("judge_source", "unknown")
-        strategy = state.get("strategy", "unknown")
+        stance = state.get("action_stance", "unknown")
 
         if emotion_delta > 0.05:
             emotion_indicator = "📈 (情緒上升)"
@@ -90,10 +90,10 @@ def run_scenarios() -> None:
         else:
             emotion_indicator = "➡️  (情緒平穩)"
 
-        strategy_emoji = STRATEGY_EMOJI.get(strategy, f"❓ {strategy}")
+        stance_emoji = STANCE_EMOJI.get(stance, f"❓ {stance}")
 
         print(f"┌{'─'*76}┐")
-        print(f"│ 【步驟 {index}】 {strategy_emoji:<35}{'策略: ' + strategy:<20}│")
+        print(f"│ 【步驟 {index}】 {stance_emoji:<35}{'姿態: ' + stance:<20}│")
         print(f"├{'─'*76}┤")
         print(f"│ 💬 輸入: {prompt}")
         print(f"│ 🔍 分類: {state.get('category', 'unknown'):<15} 來源: {judge_source}")
@@ -133,11 +133,11 @@ def run_continuous_scenario() -> None:
         except Exception as e:
             print(f"│ ⚠️ 第 {index} 輪 API 錯誤，使用降級回應")
             state["response"] = "（AI 暫時故障中...哼，才不是我的問題！）"
-            state["strategy"] = "error"
+            state["action_stance"] = "deadpan"
 
         curr_emotion = state.get("emotion", prev_emotion)
         emotion_delta = curr_emotion - prev_emotion
-        strategy = state.get("strategy", "unknown")
+        stance = state.get("action_stance", "unknown")
         trigger = state.get("trigger", "")
         ch = state.get("conversation_history", [])
         turn_count = len([e for e in ch if e["role"] == "user"])
@@ -167,7 +167,7 @@ def run_continuous_scenario() -> None:
                 print("無")
 
         print(f"│ 🎭 情緒: {curr_emotion:.3f} {indicator} (變化: {emotion_delta:+.3f}) "
-              f"策略: {strategy} | 觸發: {trigger or '無'}")
+              f"姿態: {stance} | 觸發: {trigger or '無'}")
         print(f"│")
         response = state.get("response", "")
         print(f"│ 🤖 AI: ", end="")
@@ -187,10 +187,22 @@ def run_continuous_scenario() -> None:
     final_turns = len([e for e in ch_final if e["role"] == "user"])
     print(f"📊 連續對話完成: {final_turns} 輪 | 最終情緒: {final_emotion:+.3f}")
 
+    # ── 兼容舊版背景摘要線程（新版批次摘要會同步寫入 memory.md） ──
+    pending = state.get("pending_summary", {})
+    thread = pending.get("thread")
+    if thread and thread.is_alive():
+        print("⏳ 等待記憶摘要線程完成...", end="", flush=True)
+        thread.join(timeout=10)
+        if thread.is_alive():
+            print(" ⚠️  逾時，摘要可能未完成")
+        else:
+            print(" ✅")
+
     bars = max(0, min(20, int((final_emotion + 1.0) / 2.0 * 20)))
     bar = "▓" * bars + "░" * (20 - bars)
     print(f"🎭 情緒趨勢: [{bar}]")
     print(f"{'='*80}")
+
 
 
 if __name__ == "__main__":

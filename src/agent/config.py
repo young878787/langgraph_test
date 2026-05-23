@@ -89,6 +89,13 @@ DEFAULT_FLIRT_KEYWORDS = [
     "反將", "被你",
 ]
 
+DEFAULT_FAREWELL_KEYWORDS = [
+    "晚安", "掰掰", "拜拜", "再見", "先走了", "要睡了",
+    "去睡", "先閃", "先下了", "下線", "88", "bye",
+    "good night", "gn", "掰", "要去睡", "我先走",
+    "收工", "下台", "關台",
+]
+
 DEFAULT_CREATIVE_TASK_KEYWORDS = [
     "寫詩", "寫首詩", "寫一首", "作一首", "一首詩",
     "寫故事", "寫個故事", "寫一篇", "寫一篇文章",
@@ -120,6 +127,9 @@ class AgentConfig:
     )
     creative_task_keywords: List[str] = field(
         default_factory=lambda: DEFAULT_CREATIVE_TASK_KEYWORDS.copy()
+    )
+    farewell_keywords: List[str] = field(
+        default_factory=lambda: DEFAULT_FAREWELL_KEYWORDS.copy()
     )
     emotion_bounds: Tuple[float, float] = (-1.0, 1.0)
     emotion_decay: float = 0.03
@@ -160,7 +170,7 @@ class AgentConfig:
         default_factory=lambda: os.getenv("MEMORY_MODEL", "")
     )
     memory_summary_threshold: int = field(
-        default_factory=lambda: int(os.getenv("MEMORY_SUMMARY_THRESHOLD", "30"))
+        default_factory=lambda: int(os.getenv("MEMORY_SUMMARY_THRESHOLD", "20"))
     )
     short_chance: float = field(
         default_factory=lambda: float(os.getenv("SHORT_CHANCE", "0.45"))

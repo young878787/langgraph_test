@@ -12,8 +12,9 @@ DELTA_MAP = {
     "sensitive_topic": 0.35,
     "task_request": 0.1,
     "questioning": 0.2,
-    "praise": -0.15,
+    "praise": 0.05,
     "flirt": -0.10,
+    "farewell": -0.05,
 }
 
 TSUNDERE_BONUS = 0.15
@@ -30,7 +31,7 @@ NORMAL_COOLDOWN_CAP = 4
 def update_emotion(state: AgentState, config: AgentConfig) -> AgentState:
     emotion = state.get("emotion", 0.0)
     category = state.get("category", "normal")
-    strategy = state.get("strategy", "normal")
+    stance = state.get("action_stance", "normal")
     delta = DELTA_MAP.get(category, -0.05)
     intensity = state.get("defect_intensity", config.defect_intensity)
     volatility = state.get("volatility", config.volatility)
@@ -59,21 +60,19 @@ def update_emotion(state: AgentState, config: AgentConfig) -> AgentState:
         delta += AFFECTION_BONUS * affection_scale
         decay *= 0.8
 
-    if strategy == "tsundere_retort" and category not in ("praise", "flirt"):
+    if stance == "defensive_counter":
         delta += 0.1
-    elif strategy == "excuse":
+    elif stance == "dismissive":
         delta -= 0.05
-    elif strategy == "gaslight":
-        delta += 0.05
-    elif strategy == "self_contradict":
-        delta += 0.08
-    elif strategy == "over_associate":
-        delta -= 0.03
-    elif strategy == "incorrect_correct":
+    elif stance == "authoritative_bluffing":
         delta += 0.07
-    elif strategy == "sudden_competence":
+    elif stance == "chaotic_rant":
+        delta += 0.08
+    elif stance == "vulnerable_leak":
+        delta -= 0.03
+    elif stance == "sudden_competence":
         delta -= 0.12
-    elif strategy == "emotion_burst":
+    elif stance == "emotion_burst":
         delta += 0.2
 
     adaptation = 1.0 / (1.0 + (consecutive_same - 1) * 0.3)

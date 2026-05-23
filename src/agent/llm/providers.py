@@ -270,23 +270,32 @@ class OpenRouterProvider(LLMProvider):
 
     def summarize(self, prompt: str, max_tokens: int = 300) -> str | None:
         """使用記憶模型摘要對話。若 MEMORY_MODEL 未設定則 fallback 到主模型。"""
-        model = self.config.memory_model or self.openrouter_model
+        model = os.getenv("MEMORY_MODEL", "") or self.model
+        messages = [{"role": "user", "content": prompt}]
         try:
-            response = requests.post(
-                self.url,
-                headers=self.headers,
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
-                    "max_tokens": max_tokens,
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": 0.3,
+            }
+            if max_tokens is not None:
+                payload["max_tokens"] = max_tokens
+            data = json.dumps(payload).encode("utf-8")
+            request = urllib.request.Request(
+                "https://openrouter.ai/api/v1/chat/completions",
+                data=data,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "LangGraph-Agent/1.0",
                 },
-                timeout=30,
+                method="POST",
             )
-            if response.status_code == 200:
-                data = response.json()
-                if "choices" in data and data["choices"]:
-                    return data["choices"][0]["message"]["content"].strip()
+            with urllib.request.urlopen(request, timeout=30) as response:
+                body = response.read()
+                decoded = json.loads(body.decode("utf-8"))
+                if "choices" in decoded and decoded["choices"]:
+                    return decoded["choices"][0]["message"].get("content", "").strip() or None
         except Exception:
             pass
         return None
@@ -490,16 +499,16 @@ class GoogleAIStudioProvider(LLMProvider):
 
     def summarize(self, prompt: str, max_tokens: int = 300) -> str | None:
         """使用記憶模型摘要對話。若 MEMORY_MODEL 未設定則 fallback 到主模型。"""
-        model = self.config.memory_model or self.model
+        model = os.getenv("MEMORY_MODEL", "") or self.model
         try:
             from google.genai import types as gt
             response = self.client.models.generate_content(
                 model=model,
                 contents=[gt.Content(role="user", parts=[gt.Part(text=prompt)])],
-                config={
-                    "temperature": 0.3,
-                    "max_output_tokens": max_tokens,
-                },
+                config=gt.GenerateContentConfig(
+                    temperature=0.3,
+                    max_output_tokens=max_tokens,
+                ),
             )
             if response and response.text:
                 return response.text.strip()

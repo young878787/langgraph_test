@@ -4,22 +4,18 @@ from agent.llm.output_parser import smart_truncate
 from agent.state import AgentState
 
 
-_ANSWER_FLOWS = {
-    "direct_answer",
-    "dry_answer",
-    "dodge_first",
-    "tease_then_answer",
-    "sudden_helpful",
-    "emotional_leak",
-    "overhelp_then_deny",
-    "burst_then_comply",
+_ANSWER_STANCES = {
+    "tsundere_service",
+    "sudden_competence",
+    "emotion_burst",
+    "vulnerable_leak",
 }
 
-_REJECTION_FLOWS = {
-    "hard_deflect",
-    "minimal_dodge",
-    "topic_bounce",
-    "deadpan_deny",
+_REJECTION_STANCES = {
+    "dismissive",
+    "deadpan",
+    "chaotic_rant",
+    "authoritative_bluffing",
 }
 
 _ARTIFACT_PATTERNS = (
@@ -59,7 +55,7 @@ def build_task_status(state: AgentState, turn_count: int) -> dict[str, object]:
 
     user_input = state.get("user_input", "")
     response = state.get("response", "")
-    response_flow = state.get("response_flow", "")
+    stance = state.get("action_stance", "")
     artifact = detect_requested_artifact(user_input)
 
     if category == "creative_task":
@@ -73,7 +69,7 @@ def build_task_status(state: AgentState, turn_count: int) -> dict[str, object]:
             "reason": "creative_task_policy_refusal",
         }
 
-    produced = response_flow in _ANSWER_FLOWS and response_flow not in _REJECTION_FLOWS
+    produced = stance in _ANSWER_STANCES and stance not in _REJECTION_STANCES
     return {
         "turn": turn_count,
         "category": category,
@@ -82,7 +78,7 @@ def build_task_status(state: AgentState, turn_count: int) -> dict[str, object]:
         "outcome": "completed" if produced else "partial",
         "produced_artifact": produced,
         "response_preview": smart_truncate(response, 80).replace("\n", " "),
-        "reason": f"task_request_flow:{response_flow or 'unknown'}",
+        "reason": f"task_request_stance:{stance or 'unknown'}",
     }
 
 
