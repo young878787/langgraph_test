@@ -108,6 +108,9 @@ def writeback(state: AgentState) -> AgentState:
     stance = state.get("action_stance", "tsundere_service")
     stance_history = list(state.get("stance_history", []))
     stance_history.append(stance)
+    response_flow = state.get("response_flow", "direct_answer")
+    response_flow_history = list(state.get("response_flow_history", []))
+    response_flow_history.append(response_flow)
 
     trigger_counters = dict(state.get("trigger_counters", {}))
     trigger = state.get("trigger")
@@ -236,6 +239,7 @@ def writeback(state: AgentState) -> AgentState:
 
     history_summary = (
         f"turn={turn_count}; stance={stance}; "
+        f"flow={response_flow}; "
         f"emotion={emotion:.2f}; trigger={trigger or 'none'}; "
         f"total_triggers={total_triggers}"
     )
@@ -263,6 +267,7 @@ def writeback(state: AgentState) -> AgentState:
     # ── Step 7: 回寫狀態 ──
     result: AgentState = {
         "stance_history": stance_history,
+        "response_flow_history": response_flow_history,
         "trigger_counters": trigger_counters,
         "history_summary": history_summary,
         "burst_pending": False,

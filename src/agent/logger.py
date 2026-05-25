@@ -123,6 +123,8 @@ def log_prompt(
     provider_history_count: Optional[int] = None,
     provider_history_preview: str = "",
     stance_reason: str = "",
+    response_flow: str = "",
+    flow_reason: str = "",
     raw_llm_response: str = "",
 ) -> None:
     """
@@ -152,7 +154,8 @@ def log_prompt(
         judge_error=judge_error,
         provider_history_count=provider_history_count,
         provider_history_preview=provider_history_preview,
-        stance_reason=stance_reason,
+        stance_reason=stance_reason or flow_reason,
+        response_flow=response_flow,
         raw_llm_response=raw_llm_response,
     )
 
@@ -218,6 +221,7 @@ def _write_markdown_log(
     provider_history_count: Optional[int] = None,
     provider_history_preview: str = "",
     stance_reason: str = "",
+    response_flow: str = "",
     raw_llm_response: str = "",
 ) -> None:
     """
@@ -268,6 +272,8 @@ def _write_markdown_log(
         md_entry += "| 🗣️ 語氣 | 未設定 |\n"
     if defect_mode:
         md_entry += f"| 🎭 缺陷模式 | {defect_mode} |\n"
+    if response_flow:
+        md_entry += f"| 🧭 回答節奏 | `{response_flow}` |\n"
     if stance_reason:
         md_entry += f"| 🧩 行為原因 | `{stance_reason}` |\n"
     if ttfb_ms is not None:

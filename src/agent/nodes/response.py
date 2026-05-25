@@ -94,7 +94,7 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
         temperature = config.temperature
         max_output_tokens = config.medium_max_tokens
 
-    min_len = {"short": 2, "medium": 5, "long": 20, "long_long": 30}.get(response_length, 5)
+    min_len = {"short": 2, "medium": 5, "long": 15, "long_long": 20}.get(response_length, 5)
     if memory_enabled and conversation_history:
         raw_response = _safe_call_with_history(
             provider,

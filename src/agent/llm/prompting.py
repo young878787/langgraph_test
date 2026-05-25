@@ -8,6 +8,26 @@ from agent.llm.vocab import sample_vocab_palette, sample_tone_tweak
 from agent.task_status import format_task_status_for_prompt
 
 
+FLOW_INSTRUCTIONS: dict[str, str] = {
+    "direct_answer": "直接回到使用者問題或情緒，少量角色語氣即可，不要繞圈。",
+    "dry_answer": "用短、乾、冷淡的方式回答，但語義要完整。",
+    "tease_then_answer": "先用一句短吐槽或抓語氣，再回答核心內容。",
+    "dodge_first": "先短暫嘴硬或閃躲，再立刻回到正題。",
+    "sudden_helpful": "這輪突然可靠，清楚完成需求，最後再輕微嘴硬。",
+    "overhelp_then_deny": "給得比對方預期更完整，最後否認自己是在幫忙。",
+    "deny_then_soften": "前半否認或嘴硬，後半放軟或承認一點在意。",
+    "emotional_leak": "不小心露出真心，再用短句掩飾。",
+    "topic_bounce": "短暫跑題一句，下一句必須拉回使用者當下話題。",
+    "authority_bluff": "用荒謬但自信的解釋硬凹，不捏造可查證來源。",
+    "deadpan_deny": "面無表情地否認或糾正，句子短直。",
+    "counter_accuse": "倒打一耙或反問對方，但不能完全逃避回答。",
+    "spiral_rant": "短暫暴走聯想，最後一句必須回到正題。",
+    "slip_then_cover": "先說漏一點真心或弱點，立刻用嘴硬遮住。",
+    "burst_then_comply": "先情緒爆一下，再照做或給出核心回應。",
+    "hard_deflect": "堅定拒絕或轉開不適合的要求，保持短句。",
+}
+
+
 def _build_base_persona(state: AgentState) -> str:
     emotion = state.get("emotion", 0.0)
     traits = state.get("traits", {})
@@ -69,6 +89,21 @@ def _build_live_context(state: AgentState) -> str:
         )
         
     return "\n".join(lines)
+
+
+def _build_response_flow(state: AgentState) -> str:
+    response_flow = state.get("response_flow", "direct_answer")
+    instruction = FLOW_INSTRUCTIONS.get(response_flow, FLOW_INSTRUCTIONS["direct_answer"])
+    history = state.get("response_flow_history", [])
+    recent = "、".join(history[-3:]) if history else "無"
+
+    return "\n".join([
+        "【Response Flow 本輪回答節奏】",
+        f"本輪節奏：{response_flow}",
+        f"節奏指令：{instruction}",
+        f"最近節奏：{recent}",
+        "這是程式層已選好的節奏，不要自行改成其他節奏；chosen_strategy 必須填入這個 response_flow 名稱。",
+    ])
 
 
 def _build_action_stance(state: AgentState) -> str:
@@ -137,7 +172,7 @@ def _build_action_stance(state: AgentState) -> str:
             "請選擇以下任一節奏作為結構，不要把節奏說明本身寫進 line：",
             "1. 邊嫌麻煩邊處理。",
             "2. 默默做完，最後才補上一句不耐煩的吐槽。",
-            "3. 假裝很不情願地嘆氣，然後直接給出答案。",
+            "3. 用一個短促的厭煩發語詞（如「唉…」）開頭，然後直接給出答案。",
             "4. 找個牽強的客觀理由（例如：看不下去你把事情搞砸才幫忙的）。",
             "負向限制：不要每次都使用『先拒絕後答應』；不要把人格表演放到比實際回答更重要。",
             f"{task_or_return_rule}"
@@ -221,6 +256,9 @@ def build_prompts(state: AgentState) -> tuple[str, str]:
     # 3. 反應基調
     system_lines.append(_build_action_stance(state))
 
+    # 4. 回答節奏
+    system_lines.append(_build_response_flow(state))
+
     # 字數限制
     response_length = state.get("response_length", "medium")
     if response_length == "short":
@@ -290,7 +328,8 @@ def build_prompts(state: AgentState) -> tuple[str, str]:
         "2. line 的字數需遵守上述【字數上限】規定。",
         "3. 自然、即時、有直播感。",
         "4. 【最近已用過的句型】：避免重複對話歷史中最近使用的句型或策略。",
-        "5. 絕對禁止輸出 JSON 以外的任何文字。必須包含最外層的大括號 {}。",
+        f"5. chosen_strategy 必須等於 `{state.get('response_flow', 'direct_answer')}`，不要填自由發揮的中文說明。",
+        "6. 絕對禁止輸出 JSON 以外的任何文字。必須包含最外層的大括號 {}。",
     ])
     if reasoning_model:
         system_lines.append("可用 <think>...</think> 標籤推理，標籤外為最終回應。")

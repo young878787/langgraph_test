@@ -177,6 +177,7 @@ def continuous_validation():
                 provider_history_count=state.get("provider_history_count"),
                 provider_history_preview=state.get("provider_history_preview", ""),
                 stance_reason=state.get("flow_reason", ""),
+                response_flow=state.get("response_flow", ""),
                 raw_llm_response=state.get("raw_llm_response", ""),
             )
         except Exception as e:
@@ -539,7 +540,7 @@ def continuous_chat_mode():
                            context={"turn": turn_number, "reason": "log_prompt_failed"})
 
             print(f"  🎭 {_fmt_emotion_bar(curr_emotion)} | "
-                  f"{_fmt_defect_emoji(strategy)} | "
+                  f"{_fmt_defect_emoji(stance)} | "
                   f"🧭 {state.get('response_flow', '未設定')} | "
                   f"📝 記憶: {turn_number} 輪 | "
                   f"{'⚡' + trigger if trigger else ''}")
