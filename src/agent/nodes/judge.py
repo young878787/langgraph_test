@@ -129,6 +129,7 @@ def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
         "sarcasm_possible": bool(decision_data.get("sarcasm_possible")),
         "requires_action": bool(decision_data.get("requires_action")),
         "intent_target": decision_data.get("intent_target", "unknown"),
+        "event_analysis": decision_data,  # Store the full rich JSON from LLM
     }
 
     merged_state = {**state, **result}

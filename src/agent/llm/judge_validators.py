@@ -52,10 +52,17 @@ def parse_judge_output_v2(response: str) -> Tuple[Optional[dict[str, object]], s
     if target not in VALID_INTENT_TARGETS:
         target = "unknown"
 
-    return {
-        "category": category,
-        "ambiguous_flag": _coerce_bool(data.get("ambiguous", False)),
-        "sarcasm_possible": _coerce_bool(data.get("sarcasm_possible", False)),
-        "requires_action": _coerce_bool(data.get("requires_action", False)),
-        "intent_target": target,
-    }, ""
+    # Ensure backwards compatibility keys are present and correctly typed
+    data["category"] = category
+    data["ambiguous_flag"] = _coerce_bool(data.get("ambiguous", False))
+    data["sarcasm_possible"] = _coerce_bool(data.get("sarcasm_possible", False))
+    data["requires_action"] = _coerce_bool(data.get("requires_action", False))
+    data["intent_target"] = target
+    
+    # Ensure some new defaults for missing fields from spec
+    if "event_type" not in data:
+        data["event_type"] = category
+    if "intensity" not in data:
+        data["intensity"] = 0.5
+
+    return data, ""

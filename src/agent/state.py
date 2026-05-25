@@ -87,6 +87,13 @@ class AgentState(TypedDict, total=False):
     consecutive_same_stance: int
     flow_reason: str
     
+    # VTuber Emotion System fields
+    character_state: Dict[str, float]
+    event_analysis: dict
+    resolved_emotion: dict
+    acting_brief: dict
+    performance_output: dict
+    
     stream_phase: StreamPhase
     chat_vibe: str
 
@@ -119,6 +126,7 @@ class AgentState(TypedDict, total=False):
     provider_history_preview: str
     fake_praise: bool
     last_task_status: Dict[str, object]
+    raw_llm_response: str
 
 
 def initial_state(config: AgentConfig) -> AgentState:
@@ -158,4 +166,23 @@ def initial_state(config: AgentConfig) -> AgentState:
         "reasoning_model": config.reasoning_model,
         "fallback_used": False,
         "response_length": "medium",
+        "character_state": {
+            "mood": 0.55,
+            "energy": 0.60,
+            "tension": 0.10,
+            "intimacy": 0.20,
+            "embarrassment": 0.0,
+            "confidence": 0.50,
+            "playfulness": 0.45,
+            "annoyance": 0.0,
+            "masking": 0.35,
+            "dominance": 0.40,
+            "sadness": 0.0,
+            "hostility": 0.0,
+            "boundary_pressure": 0.0
+        },
+        "event_analysis": {},
+        "resolved_emotion": {},
+        "acting_brief": {},
+        "performance_output": {}
     }

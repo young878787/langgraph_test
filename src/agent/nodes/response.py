@@ -8,6 +8,10 @@ from agent.llm.prompting import build_prompts, format_provider_history_preview
 from agent.llm.providers import get_provider
 from agent.llm.validators import is_on_strategy, fallback_response
 from agent.llm.output_parser import smart_truncate
+from agent.llm.judge_validators import _extract_json
+import json
+from agent.llm.judge_validators import _extract_json
+import json
 from agent.logger import log_error
 
 
@@ -34,6 +38,20 @@ def _safe_call_with_history(provider, system_prompt, user_prompt, temperature, h
             _LLM_FAILURE_REPORTED.add(key)
             log_error("response", "_safe_call_with_history", e, {"backend": type(provider).__name__})
         return None
+
+def _parse_response_json(raw_text: str) -> tuple[str, dict]:
+    if not raw_text:
+        return "", {}
+    
+    extracted = _extract_json(raw_text)
+    if not extracted:
+        return raw_text.strip(), {}
+        
+    try:
+        data = json.loads(extracted)
+        return data.get("line", raw_text).strip(), data
+    except Exception:
+        return raw_text.strip(), {}
 
 
 def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
@@ -63,7 +81,7 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
 
     min_len = {"short": 2, "medium": 5, "long": 20, "long_long": 30}.get(response_length, 5)
     if memory_enabled and conversation_history:
-        response = _safe_call_with_history(
+        raw_response = _safe_call_with_history(
             provider,
             system_prompt,
             user_prompt,
@@ -72,21 +90,28 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
             max_output_tokens,
         )
     else:
-        response = _safe_call(provider, system_prompt, user_prompt, temperature, max_output_tokens)
+        raw_response = _safe_call(provider, system_prompt, user_prompt, temperature, max_output_tokens)
 
-    if response:
+    response_meta = {}
+    if raw_response:
+        response, response_meta = _parse_response_json(raw_response)
         response = smart_truncate(response, max_output_tokens)
+    else:
+        response = ""
 
     if not response or len(response.strip()) < min_len:
         response = fallback_response(state)
         fallback_used = True
     elif not is_on_strategy(state, response, config):
         if memory_enabled and conversation_history:
-            response = _safe_call_with_history(provider, system_prompt, user_prompt, config.retry_temperature, conversation_history, max_output_tokens)
+            raw_response = _safe_call_with_history(provider, system_prompt, user_prompt, config.retry_temperature, conversation_history, max_output_tokens)
         else:
-            response = _safe_call(provider, system_prompt, user_prompt, config.retry_temperature, max_output_tokens)
-        if response:
+            raw_response = _safe_call(provider, system_prompt, user_prompt, config.retry_temperature, max_output_tokens)
+            
+        if raw_response:
+            response, response_meta = _parse_response_json(raw_response)
             response = smart_truncate(response, max_output_tokens)
+            
         if not response or len(response.strip()) < min_len:
             response = fallback_response(state)
             fallback_used = True
@@ -94,7 +119,21 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
             response = fallback_response(state)
             fallback_used = True
 
+    # ==========================
+    # VTuber Output JSON Parsing
+    # ==========================
+    if fallback_used:
+        chosen_strategy = "fallback"
+    else:
+        chosen_strategy = response_meta.get("chosen_strategy", "fallback/parsing_error") if response_meta else "fallback/parsing_error"
+
     total_ms = (time.perf_counter() - t_start) * 1000
+    
+    # Store performance metadata back into state
+    perf_output = state.get("performance_output", {})
+    if response_meta:
+        perf_output["llm_meta"] = response_meta
+
     return {
         "response": response,
         "system_prompt": system_prompt,
@@ -104,4 +143,7 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
         "total_ms": total_ms,
         "provider_history_count": provider_history_count,
         "provider_history_preview": provider_history_preview,
+        "performance_output": perf_output,
+        "raw_llm_response": raw_response if raw_response else "",
+        "flow_reason": f"{state.get('flow_reason', '')} | chosen_strategy={chosen_strategy}"
     }

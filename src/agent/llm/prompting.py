@@ -229,14 +229,28 @@ def build_prompts(state: AgentState) -> tuple[str, str]:
     else:
         system_lines.append("【字數上限】2-3句。每句≤15字。像傳訊息般直接，能一句絕不拆兩句。")
 
-    system_lines.extend([
-        "直接輸出最終回應，禁止思考過程、Markdown 列表、*動作描述*。",
-        "禁止照抄範例句，每回合語氣用詞需有變化。",
-    ])
-    if reasoning_model:
-        system_lines.append("可用 <think>...</think> 標籤推理，標籤外為最終回應。")
-    else:
-        system_lines.append("禁止使用 <think> 標籤。")
+    # VTuber Acting Brief & Emotion Mapping
+    acting_brief = state.get("acting_brief", {})
+    if acting_brief:
+        brief_lines = [
+            "【演出指令】",
+            f"- 內心：{acting_brief.get('inner', '')}",
+            f"- 外顯：{acting_brief.get('outer', '')}",
+            f"- 語氣：{acting_brief.get('tone', '')}",
+            f"- 策略：{acting_brief.get('strategy', '')}",
+        ]
+        if acting_brief.get("allowed_patterns"):
+            brief_lines.append(f"【可用反應形式】\n" + "、".join(acting_brief["allowed_patterns"]))
+        if acting_brief.get("avoid"):
+            brief_lines.append(f"【避免】\n" + "、".join(acting_brief["avoid"]))
+        system_lines.append("\n".join(brief_lines))
+
+    # Recent Phrases to prevent repetition
+    conversation_history = state.get("conversation_history", [])
+    if conversation_history:
+        recent_ai = [entry["content"] for entry in conversation_history if entry["role"] == "assistant"]
+        if recent_ai:
+            system_lines.append("【最近已使用的台詞（請避免重複句型或反問套路）】\n" + "\n".join(recent_ai[-3:]))
 
     if memory_enabled and summary:
         system_lines.append(f"狀態摘要：{summary}")
@@ -259,6 +273,26 @@ def build_prompts(state: AgentState) -> tuple[str, str]:
             
         if entities_text.strip():
             system_lines.append(f"【世界狀態追蹤】\n{entities_text.strip()}")
+
+    system_lines.extend([
+        "【輸出要求】",
+        "為了配合系統管線，你必須只輸出一個 JSON 物件，格式如下：",
+        "{",
+        '  "line": "角色台詞",',
+        '  "chosen_strategy": "你選擇的策略",',
+        '  "used_recent_phrase": false',
+        "}",
+        "規則：",
+        "1. line：只能放台詞，不要出現動作描述 (如 *嘆氣*)。不要解釋情緒數值。",
+        "2. line 的字數需遵守上述【字數上限】規定。",
+        "3. 自然、即時、有直播感。",
+        "4. 【最近已用過的句型】：避免重複對話歷史中最近使用的句型或策略。",
+        "5. 絕對禁止輸出 JSON 以外的任何文字。",
+    ])
+    if reasoning_model:
+        system_lines.append("可用 <think>...</think> 標籤推理，標籤外為最終回應。")
+    else:
+        system_lines.append("禁止使用 <think> 標籤。")
 
     system_prompt = "\n\n".join(system_lines)
     user_prompt = state.get("user_input", "")

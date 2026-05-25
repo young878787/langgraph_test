@@ -178,12 +178,21 @@ def sample_vocab_palette(emotion: float = 0.0) -> str:
 
     parts = [
         f"【詞彙與口頭禪素材】以下只是本輪可用的語氣素材，不是固定句型，也不必全部使用：",
-        f"發語詞素材：『{opener}』（可放句首、句中、句尾，或完全不用）",
+    ]
+
+    # 這裡只是簡單設計 晚點調整
+    if random.random() > 0.5:
+        parts.append(f"發語詞素材：『{opener}』（可放句首、句中、句尾，或完全不用）")
+    else:
+        parts.append("發語詞指令：【禁用】本輪禁止在句首使用任何語氣詞，請直接切入正題。")
+
+    parts.extend([
         f"稱呼素材：『{pet}』（只在自然時使用）",
         f"語尾助詞素材：『{ender}』（避免每句都加）",
         f"核心意圖：想要表達類似「{catch}」的意思，請換個說法。",
         f"當前情緒偏{zone['label']}（{zone['description']}）。",
-    ]
+    ])
+    
     return "\n".join(parts)
 
 

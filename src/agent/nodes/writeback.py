@@ -242,7 +242,25 @@ def writeback(state: AgentState) -> AgentState:
     if status_flags:
         history_summary += "; " + "; ".join(status_flags)
 
-    # ── Step 6: 回寫狀態 ──
+    # ── Step 6: Performance Mapper (Live2D / TTS) ──
+    resolved_emotion = state.get("resolved_emotion", {})
+    character_state = state.get("character_state", {})
+    perf_output = dict(state.get("performance_output", {}))
+    
+    perf_output["live2d"] = {
+        "expression": resolved_emotion.get("base", "neutral"),
+        "intensity": resolved_emotion.get("intensity", 0.5),
+        "eye_contact": 0.8 if character_state.get("confidence", 0.5) > 0.6 else 0.4,
+        "blush_level": character_state.get("embarrassment", 0.0)
+    }
+    
+    perf_output["tts"] = {
+        "speed": 1.2 if character_state.get("tension", 0.1) > 0.6 else (0.8 if resolved_emotion.get("base") == "sad" else 1.0),
+        "pitch": 1.1 if character_state.get("energy", 0.5) > 0.7 else 1.0,
+        "volume": 0.8 if character_state.get("confidence", 0.5) < 0.4 else 1.0
+    }
+
+    # ── Step 7: 回寫狀態 ──
     result: AgentState = {
         "stance_history": stance_history,
         "trigger_counters": trigger_counters,
@@ -254,6 +272,7 @@ def writeback(state: AgentState) -> AgentState:
         "long_term_memory": long_term_memory,
         "pending_summary": pending_summary,
         "last_task_status": last_task_status,
+        "performance_output": perf_output,
     }
 
     if "system_prompt" in state:

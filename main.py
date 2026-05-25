@@ -177,6 +177,7 @@ def continuous_validation():
                 provider_history_count=state.get("provider_history_count"),
                 provider_history_preview=state.get("provider_history_preview", ""),
                 stance_reason=state.get("flow_reason", ""),
+                raw_llm_response=state.get("raw_llm_response", ""),
             )
         except Exception as e:
             log_error(module="main", function="continuous_validation", error=e,
@@ -346,6 +347,7 @@ def interactive_chat():
                     provider_history_preview=state.get("provider_history_preview", ""),
                     response_flow=state.get("response_flow", ""),
                     flow_reason=state.get("flow_reason", ""),
+                    raw_llm_response=state.get("raw_llm_response", ""),
                 )
             except Exception as e:
                 log_error(module="main", function="interactive_chat", error=e,
@@ -530,6 +532,7 @@ def continuous_chat_mode():
                     provider_history_preview=state.get("provider_history_preview", ""),
                     response_flow=state.get("response_flow", ""),
                     flow_reason=state.get("flow_reason", ""),
+                    raw_llm_response=state.get("raw_llm_response", ""),
                 )
             except Exception as e:
                 log_error(module="main", function="continuous_chat_mode", error=e,

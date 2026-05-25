@@ -19,7 +19,18 @@ def clean_response(raw_response: str) -> str:
     if not raw_response:
         return ""
 
-    cleaned = re.sub(r'<think>.*?</think>', '', raw_response, flags=re.DOTALL)
+    cleaned = re.sub(r'<think>.*?</think>', '', raw_response, flags=re.DOTALL).strip()
+
+    # 如果去掉 <think> 後，內容包含合法的 JSON 物件，就直接提取並回傳，避免後續中文過濾破壞結構
+    start = cleaned.find('{')
+    end = cleaned.rfind('}')
+    if start != -1 and end != -1 and end > start:
+        candidate = cleaned[start:end+1]
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass
 
     lines = cleaned.split('\n')
     cleaned_lines = []

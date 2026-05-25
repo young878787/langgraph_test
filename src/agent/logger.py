@@ -123,6 +123,7 @@ def log_prompt(
     provider_history_count: Optional[int] = None,
     provider_history_preview: str = "",
     stance_reason: str = "",
+    raw_llm_response: str = "",
 ) -> None:
     """
     記錄輸入輸出資訊到 prompts.md
@@ -152,6 +153,7 @@ def log_prompt(
         provider_history_count=provider_history_count,
         provider_history_preview=provider_history_preview,
         stance_reason=stance_reason,
+        raw_llm_response=raw_llm_response,
     )
 
 
@@ -216,6 +218,7 @@ def _write_markdown_log(
     provider_history_count: Optional[int] = None,
     provider_history_preview: str = "",
     stance_reason: str = "",
+    raw_llm_response: str = "",
 ) -> None:
     """
     將日誌以現代化 Markdown 格式寫入 prompts.md
@@ -316,6 +319,11 @@ def _write_markdown_log(
         if judge_error:
             err_trimmed = judge_error.strip()[:200]
             md_entry += f"| ⚠️ Judge 錯誤 | `{err_trimmed}` |\n"
+
+    if raw_llm_response:
+        md_entry += "\n### 📦 原始模型輸出 (Raw Output)\n<details>\n<summary>點擊展開/收起模型原始輸出</summary>\n\n```json\n"
+        md_entry += raw_llm_response.strip()
+        md_entry += "\n```\n\n</details>\n"
 
     md_entry += "\n---\n"
     
