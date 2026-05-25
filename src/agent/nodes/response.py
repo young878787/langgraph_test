@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import time
+import json
+import re
 
 from agent.config import AgentConfig
 from agent.state import AgentState
@@ -9,9 +11,6 @@ from agent.llm.providers import get_provider
 from agent.llm.validators import is_on_strategy, fallback_response
 from agent.llm.output_parser import smart_truncate
 from agent.llm.judge_validators import _extract_json
-import json
-from agent.llm.judge_validators import _extract_json
-import json
 from agent.logger import log_error
 
 
@@ -39,19 +38,35 @@ def _safe_call_with_history(provider, system_prompt, user_prompt, temperature, h
             log_error("response", "_safe_call_with_history", e, {"backend": type(provider).__name__})
         return None
 
+def _fallback_extract_line(text: str) -> str:
+    match = re.search(r'"line"\s*:\s*"((?:\\.|[^"\\])*)"', text)
+    if match:
+        try:
+            return match.group(1).encode().decode('unicode_escape')
+        except Exception:
+            return match.group(1)
+            
+    cleaned = text.strip()
+    cleaned = re.sub(r'^.*?("line"\s*:\s*|line\s*:)', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r',?\s*("chosen_strategy"\s*:.*|chosen_strategy\s*:.*)$', '', cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r',?\s*("used_recent_phrase"\s*:.*)$', '', cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r'^[{"\s]*', '', cleaned)
+    cleaned = re.sub(r'["}, \s]*$', '', cleaned)
+    return cleaned
+
 def _parse_response_json(raw_text: str) -> tuple[str, dict]:
     if not raw_text:
         return "", {}
     
     extracted = _extract_json(raw_text)
     if not extracted:
-        return raw_text.strip(), {}
+        return _fallback_extract_line(raw_text), {}
         
     try:
         data = json.loads(extracted)
         return data.get("line", raw_text).strip(), data
     except Exception:
-        return raw_text.strip(), {}
+        return _fallback_extract_line(raw_text), {}
 
 
 def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
