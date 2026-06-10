@@ -10,7 +10,6 @@ from agent.llm.prompting import build_prompts, format_provider_history_preview
 from agent.llm.providers import get_provider
 from agent.llm.validators import is_on_strategy, fallback_response
 from agent.llm.output_parser import smart_truncate
-from agent.llm.judge_validators import _extract_json
 from agent.logger import log_error
 
 
@@ -38,35 +37,36 @@ def _safe_call_with_history(provider, system_prompt, user_prompt, temperature, h
             log_error("response", "_safe_call_with_history", e, {"backend": type(provider).__name__})
         return None
 
-def _fallback_extract_line(text: str) -> str:
+def coerce_plain_response(text: str) -> str:
+    """Keep response LLM as plain text while tolerating legacy JSON-shaped output."""
+    if not text:
+        return ""
+
+    cleaned = text.strip()
+    cleaned = re.sub(r"^```(?:json|text)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    try:
+        data = json.loads(cleaned)
+    except Exception:
+        data = None
+
+    if isinstance(data, dict):
+        line = data.get("line")
+        if isinstance(line, str):
+            return line.strip()
+
     match = re.search(r'"line"\s*:\s*"((?:\\.|[^"\\])*)"', text)
     if match:
         try:
             return match.group(1).encode().decode('unicode_escape')
         except Exception:
             return match.group(1)
-            
-    cleaned = text.strip()
+
     cleaned = re.sub(r'^.*?("line"\s*:\s*|line\s*:)', '', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r',?\s*("chosen_strategy"\s*:.*|chosen_strategy\s*:.*)$', '', cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r',?\s*("used_recent_phrase"\s*:.*)$', '', cleaned, flags=re.IGNORECASE).strip()
     cleaned = re.sub(r'^[{"\s]*', '', cleaned)
     cleaned = re.sub(r'["}, \s]*$', '', cleaned)
     return cleaned
-
-def _parse_response_json(raw_text: str) -> tuple[str, dict]:
-    if not raw_text:
-        return "", {}
-    
-    extracted = _extract_json(raw_text)
-    if not extracted:
-        return _fallback_extract_line(raw_text), {}
-        
-    try:
-        data = json.loads(extracted)
-        return data.get("line", raw_text).strip(), data
-    except Exception:
-        return _fallback_extract_line(raw_text), {}
 
 
 def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
@@ -107,9 +107,8 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
     else:
         raw_response = _safe_call(provider, system_prompt, user_prompt, temperature, max_output_tokens)
 
-    response_meta = {}
     if raw_response:
-        response, response_meta = _parse_response_json(raw_response)
+        response = coerce_plain_response(raw_response)
         response = smart_truncate(response, max_output_tokens)
     else:
         response = ""
@@ -124,7 +123,7 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
             raw_response = _safe_call(provider, system_prompt, user_prompt, config.retry_temperature, max_output_tokens)
             
         if raw_response:
-            response, response_meta = _parse_response_json(raw_response)
+            response = coerce_plain_response(raw_response)
             response = smart_truncate(response, max_output_tokens)
             
         if not response or len(response.strip()) < min_len:
@@ -134,20 +133,7 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
             response = fallback_response(state)
             fallback_used = True
 
-    # ==========================
-    # VTuber Output JSON Parsing
-    # ==========================
-    if fallback_used:
-        chosen_strategy = "fallback"
-    else:
-        chosen_strategy = response_meta.get("chosen_strategy", "fallback/parsing_error") if response_meta else "fallback/parsing_error"
-
     total_ms = (time.perf_counter() - t_start) * 1000
-    
-    # Store performance metadata back into state
-    perf_output = state.get("performance_output", {})
-    if response_meta:
-        perf_output["llm_meta"] = response_meta
 
     return {
         "response": response,
@@ -158,7 +144,5 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
         "total_ms": total_ms,
         "provider_history_count": provider_history_count,
         "provider_history_preview": provider_history_preview,
-        "performance_output": perf_output,
         "raw_llm_response": raw_response if raw_response else "",
-        "flow_reason": f"{state.get('flow_reason', '')} | chosen_strategy={chosen_strategy}"
     }

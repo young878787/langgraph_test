@@ -82,8 +82,29 @@ def _summarize_worker(provider, messages: list[dict], existing_summary: str, res
     try:
         prompt = _build_summary_prompt(messages, existing_summary)
         summary = provider.summarize(prompt)
-        result_holder["result"] = _clean_summary_output(summary or "")
-        
+
+        if summary is None:
+            from agent.logger import log_error
+            log_error(
+                "writeback", "_summarize_worker",
+                RuntimeError("provider.summarize() 回傳 None（API 可能失敗或回應為空）"),
+                {"provider": type(provider).__name__, "prompt_len": len(prompt),
+                 "has_existing_summary": bool(existing_summary)},
+            )
+            print(f"⚠️ [記憶摘要] provider.summarize() 回傳 None — provider={type(provider).__name__}")
+            result_holder["result"] = ""
+        elif not summary.strip():
+            from agent.logger import log_error
+            log_error(
+                "writeback", "_summarize_worker",
+                RuntimeError("provider.summarize() 回傳空字串"),
+                {"provider": type(provider).__name__, "prompt_len": len(prompt)},
+            )
+            print(f"⚠️ [記憶摘要] provider.summarize() 回傳空字串 — provider={type(provider).__name__}")
+            result_holder["result"] = ""
+        else:
+            result_holder["result"] = _clean_summary_output(summary)
+
         # 實體記憶萃取
         entity_prompt = _build_entity_prompt(messages)
         entities = provider.summarize(entity_prompt)
@@ -97,8 +118,16 @@ def _summarize_worker(provider, messages: list[dict], existing_summary: str, res
                         f.write(f"- {world_match.group(1).strip()}\n")
             except Exception as e:
                 print(f"寫入實體記憶失敗: {e}")
-                
-    except Exception:
+
+    except Exception as exc:
+        from agent.logger import log_error
+        log_error(
+            "writeback", "_summarize_worker", exc,
+            {"provider": type(provider).__name__,
+             "message_count": len(messages),
+             "has_existing_summary": bool(existing_summary)},
+        )
+        print(f"❌ [記憶摘要] _summarize_worker 例外: {type(exc).__name__}: {exc}")
         result_holder["result"] = ""
     finally:
         result_holder["done"] = True
@@ -213,6 +242,16 @@ def writeback(state: AgentState) -> AgentState:
                         existing_memory=existing,
                     )
                 else:
+                    # 摘要結果為空 — 記錄到 memory.md 以便偵錯
+                    from agent.logger import log_memory_summary
+                    log_memory_summary(
+                        turn=holder["trigger_turn"],
+                        input_text=input_text,
+                        output_text="❌ 摘要失敗：provider.summarize() 回傳空結果",
+                        model=_cfg.memory_model or "default",
+                        existing_memory=existing,
+                    )
+                    print(f"⚠️ [記憶摘要] Turn {holder['trigger_turn']}: 摘要結果為空，已記錄到 memory.md")
                     pending_summary = {}
 
     # ── Step 5: 生成輕量狀態摘要（純狀態追蹤，不含對話內容） ──

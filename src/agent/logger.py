@@ -124,6 +124,7 @@ def log_prompt(
     provider_history_preview: str = "",
     stance_reason: str = "",
     response_flow: str = "",
+    response_goal: str = "",
     flow_reason: str = "",
     raw_llm_response: str = "",
 ) -> None:
@@ -156,6 +157,7 @@ def log_prompt(
         provider_history_preview=provider_history_preview,
         stance_reason=stance_reason or flow_reason,
         response_flow=response_flow,
+        response_goal=response_goal,
         raw_llm_response=raw_llm_response,
     )
 
@@ -222,6 +224,7 @@ def _write_markdown_log(
     provider_history_preview: str = "",
     stance_reason: str = "",
     response_flow: str = "",
+    response_goal: str = "",
     raw_llm_response: str = "",
 ) -> None:
     """
@@ -272,6 +275,8 @@ def _write_markdown_log(
         md_entry += "| 🗣️ 語氣 | 未設定 |\n"
     if defect_mode:
         md_entry += f"| 🎭 缺陷模式 | {defect_mode} |\n"
+    if response_goal:
+        md_entry += f"| 🎯 回應目的 | `{response_goal}` |\n"
     if response_flow:
         md_entry += f"| 🧭 回答節奏 | `{response_flow}` |\n"
     if stance_reason:
@@ -327,7 +332,7 @@ def _write_markdown_log(
             md_entry += f"| ⚠️ Judge 錯誤 | `{err_trimmed}` |\n"
 
     if raw_llm_response:
-        md_entry += "\n### 📦 原始模型輸出 (Raw Output)\n<details>\n<summary>點擊展開/收起模型原始輸出</summary>\n\n```json\n"
+        md_entry += "\n### 📦 原始模型輸出 (Raw Output)\n<details>\n<summary>點擊展開/收起模型原始輸出</summary>\n\n```text\n"
         md_entry += raw_llm_response.strip()
         md_entry += "\n```\n\n</details>\n"
 

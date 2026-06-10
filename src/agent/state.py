@@ -6,6 +6,14 @@ from agent.config import AgentConfig
 
 Category = Literal["normal", "negative_feedback", "sensitive_topic", "task_request", "creative_task", "questioning", "praise", "flirt", "farewell"]
 ResponseLength = Literal["short", "medium", "long", "long_long"]
+ResponseGoal = Literal[
+    "answer_user",
+    "acknowledge_emotion",
+    "repair_misunderstanding",
+    "close_conversation",
+    "maintain_boundary",
+    "continue_banter",
+]
 ResponseFlow = Literal[
     "direct_answer",
     "dry_answer",
@@ -105,6 +113,7 @@ class AgentState(TypedDict, total=False):
     consecutive_same_stance: int
     response_flow: ResponseFlow
     response_flow_history: List[ResponseFlow]
+    response_goal: ResponseGoal
     flow_reason: str
     
     # VTuber Emotion System fields
@@ -160,6 +169,7 @@ def initial_state(config: AgentConfig) -> AgentState:
         "consecutive_same_stance": 0,
         "response_flow": "direct_answer",
         "response_flow_history": [],
+        "response_goal": "continue_banter",
         "flow_reason": "initial",
         "stream_phase": "unknown",
         "chat_vibe": "",

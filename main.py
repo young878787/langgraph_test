@@ -178,6 +178,7 @@ def continuous_validation():
                 provider_history_preview=state.get("provider_history_preview", ""),
                 stance_reason=state.get("flow_reason", ""),
                 response_flow=state.get("response_flow", ""),
+                response_goal=state.get("response_goal", ""),
                 raw_llm_response=state.get("raw_llm_response", ""),
             )
         except Exception as e:
@@ -256,6 +257,7 @@ def interactive_chat():
                 from agent.llm.providers import get_provider
                 from agent.llm.prompting import build_prompts, format_provider_history_preview
                 from agent.nodes.writeback import writeback
+                from agent.nodes.response import coerce_plain_response
                 from agent.llm.validators import is_on_strategy, fallback_response
                 from agent.llm.output_parser import smart_truncate
 
@@ -304,6 +306,7 @@ def interactive_chat():
                 from agent.llm.providers import clean_response
                 full_response = clean_response(full_response)
                 if full_response:
+                    full_response = coerce_plain_response(full_response)
                     full_response = smart_truncate(full_response, max_output_tokens)
 
                 response_length = state.get("response_length", "medium")
@@ -347,6 +350,7 @@ def interactive_chat():
                     provider_history_count=state.get("provider_history_count"),
                     provider_history_preview=state.get("provider_history_preview", ""),
                     response_flow=state.get("response_flow", ""),
+                    response_goal=state.get("response_goal", ""),
                     flow_reason=state.get("flow_reason", ""),
                     raw_llm_response=state.get("raw_llm_response", ""),
                 )
@@ -433,6 +437,7 @@ def continuous_chat_mode():
                 from agent.llm.providers import get_provider
                 from agent.llm.prompting import build_prompts, format_provider_history_preview
                 from agent.nodes.writeback import writeback
+                from agent.nodes.response import coerce_plain_response
                 from agent.llm.validators import is_on_strategy, fallback_response
                 from agent.llm.output_parser import smart_truncate
 
@@ -483,6 +488,7 @@ def continuous_chat_mode():
                 from agent.llm.providers import clean_response
                 full_response = clean_response(full_response)
                 if full_response:
+                    full_response = coerce_plain_response(full_response)
                     full_response = smart_truncate(full_response, max_output_tokens)
 
                 response_length = state.get("response_length", "medium")
@@ -532,6 +538,7 @@ def continuous_chat_mode():
                     provider_history_count=state.get("provider_history_count"),
                     provider_history_preview=state.get("provider_history_preview", ""),
                     response_flow=state.get("response_flow", ""),
+                    response_goal=state.get("response_goal", ""),
                     flow_reason=state.get("flow_reason", ""),
                     raw_llm_response=state.get("raw_llm_response", ""),
                 )
