@@ -10,7 +10,6 @@ LOG_DIR = Path(__file__).parent.parent.parent / "logs"
 ERROR_LOG = LOG_DIR / "error.log"
 PROMPT_MD = LOG_DIR / "prompts.md"
 MEMORY_MD = LOG_DIR / "memory.md"
-WORLD_STATE_MD = LOG_DIR / "world_state.md"
 
 
 def init_logs() -> None:
@@ -54,13 +53,6 @@ def init_logs() -> None:
             f.flush()
     except Exception as e:
         print(f"警告：無法初始化記憶日誌 {MEMORY_MD}: {e}")
-
-    try:
-        with open(WORLD_STATE_MD, "w", encoding="utf-8") as f:
-            f.write("# 🌍 世界狀態與共同事件 (World State)\n\n")
-            f.flush()
-    except Exception:
-        pass
 
 
 def log_error(
@@ -388,6 +380,9 @@ def log_memory_summary(
     output_text: str,
     model: str = "default",
     existing_memory: str = "",
+    source: str = "llm",
+    rejected_output: str = "",
+    ai_memory: str = "",
 ) -> None:
     """
     記錄異步記憶摘要到 memory.md
@@ -395,9 +390,12 @@ def log_memory_summary(
     Args:
         turn: 觸發摘要時的回合數
         input_text: 摘要前的對話內容
-        output_text: 摘要結果
+        output_text: 完整結構化 Markdown（含摘要原文）
         model: 使用的模型名稱
         existing_memory: 合併前的現有長期記憶
+        source: 摘要來源，如 llm / structured_fallback / failed
+        rejected_output: 被品質閘門拒絕的原始輸出
+        ai_memory: AI 實際可讀的結構化重點（不含摘要原文）
     """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -406,25 +404,42 @@ def log_memory_summary(
 
 > 🕐 **時間**: {timestamp}
 > 🤖 **模型**: `{model}`
+> 🧪 **來源**: `{source}`
 > 📝 **摘要對話數**: {input_text.count(chr(10)) + 1} 行
 
 ### 📥 輸入（待摘要的對話）
 ```
-{input_text[:2000]}
+{input_text}
 ```
 """
     if existing_memory:
         entry += f"""
 ### 📋 合併前的現有記憶
 ```
-{existing_memory[:500]}
+{existing_memory}
+```
+"""
+
+    if rejected_output:
+        entry += f"""
+### 🚫 被拒絕的原始摘要輸出
+```text
+{rejected_output[:1000]}
+```
+"""
+
+    if ai_memory:
+        entry += f"""
+### 🤖 AI 可讀記憶
+```
+{ai_memory}
 ```
 """
 
     entry += f"""
-### 📤 輸出（摘要結果）
+### 📤 輸出（完整結構化摘要）
 ```
-{output_text[:1000]}
+{output_text}
 ```
 
 ---

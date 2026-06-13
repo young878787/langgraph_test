@@ -263,22 +263,7 @@ def build_prompts(state: AgentState) -> tuple[str, str]:
 
     long_term = state.get("long_term_memory", "")
     if memory_enabled and long_term:
-        system_lines.append(f"長期記憶：{long_term}")
-
-    if memory_enabled:
-        from agent.logger import WORLD_STATE_MD
-        entities_text = ""
-        try:
-            if WORLD_STATE_MD.exists():
-                with open(WORLD_STATE_MD, "r", encoding="utf-8") as f:
-                    c = f.read().strip()
-                    if c and c != "# 🌍 世界狀態與共同事件 (World State)":
-                        entities_text += c + "\n\n"
-        except Exception:
-            pass
-            
-        if entities_text.strip():
-            system_lines.append(f"【世界狀態追蹤】\n{entities_text.strip()}")
+        system_lines.append(f"【長期記憶】\n{long_term}")
 
     system_lines.extend([
         "【輸出要求】",

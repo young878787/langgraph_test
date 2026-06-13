@@ -322,7 +322,7 @@ def interactive_chat():
                 state["response"] = full_response
                 state["system_prompt"] = system_prompt
 
-                state.update(writeback(state))
+                state.update(writeback(state, config))
             else:
                 state = graph.invoke(state)
                 response = state.get("response", "")
@@ -504,7 +504,7 @@ def continuous_chat_mode():
                 state["response"] = full_response
                 state["system_prompt"] = system_prompt
 
-                state.update(writeback(state))
+                state.update(writeback(state, config))
             else:
                 state = graph.invoke(state)
                 response = state.get("response", "")

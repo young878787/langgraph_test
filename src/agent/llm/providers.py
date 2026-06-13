@@ -279,41 +279,27 @@ class OpenRouterProvider(LLMProvider):
         raw = self._make_request(messages, temperature, max_output_tokens)
         return clean_response(raw)
 
-    def summarize(self, prompt: str, max_tokens: int = 300) -> str | None:
+    def summarize(self, prompt: str, max_tokens: int = 1000) -> str | None:
         """使用記憶模型摘要對話。若 MEMORY_MODEL 未設定則 fallback 到主模型。"""
         model = os.getenv("MEMORY_MODEL", "") or self.model
         messages = [{"role": "user", "content": prompt}]
         try:
-            payload = {
-                "model": model,
-                "messages": messages,
-                "temperature": 0.3,
-            }
-            if max_tokens is not None:
-                payload["max_tokens"] = max_tokens
-            data = json.dumps(payload).encode("utf-8")
-            request = urllib.request.Request(
-                "https://openrouter.ai/api/v1/chat/completions",
-                data=data,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "LangGraph-Agent/1.0",
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(request, timeout=30) as response:
-                body = response.read()
-                decoded = json.loads(body.decode("utf-8"))
-                if "choices" in decoded and decoded["choices"]:
-                    return decoded["choices"][0]["message"].get("content", "").strip() or None
+            # 暫時切換模型以重用 _make_request（含 3 次重試 + rate limit 處理）
+            original_model = self.model
+            self.model = model
+            try:
+                raw = self._make_request(messages, 0.6, max_tokens)
+            finally:
+                self.model = original_model
+            return raw.strip() if raw else None
         except Exception as exc:
             log_error(
                 "providers", "OpenRouterProvider.summarize", exc,
                 {"model": model, "prompt_len": len(prompt)},
             )
-            print(f"\u26a0\ufe0f [\u8a18\u61b6\u6458\u8981] OpenRouter summarize \u5931\u6557: {type(exc).__name__}: {exc}")
+            print(f"⚠️ [記憶摘要] OpenRouter summarize 失敗: {type(exc).__name__}: {exc}")
         return None
+
 
 
 class GoogleAIStudioProvider(LLMProvider):
@@ -512,7 +498,7 @@ class GoogleAIStudioProvider(LLMProvider):
             return "（API 暫時無法回應，請稍後重試）"
         return result
 
-    def summarize(self, prompt: str, max_tokens: int = 300) -> str | None:
+    def summarize(self, prompt: str, max_tokens: int = 1000) -> str | None:
         """使用記憶模型摘要對話。若 MEMORY_MODEL 未設定則 fallback 到主模型。"""
         model = os.getenv("MEMORY_MODEL", "") or self.model
         try:
@@ -521,7 +507,7 @@ class GoogleAIStudioProvider(LLMProvider):
                 model=model,
                 contents=[gt.Content(role="user", parts=[gt.Part(text=prompt)])],
                 config=gt.GenerateContentConfig(
-                    temperature=0.3,
+                    temperature=0.6,
                     max_output_tokens=max_tokens,
                 ),
             )

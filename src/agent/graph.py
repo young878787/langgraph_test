@@ -30,7 +30,7 @@ def build_graph(config: AgentConfig | None = None, interrupt_before_respond: boo
     graph.add_node("emotion", lambda state: update_emotion(state, config))
     graph.add_node("tone", lambda state: build_tone_strategy(state, config))
     graph.add_node("respond", lambda state: generate_response(state, config))
-    graph.add_node("writeback", writeback)
+    graph.add_node("writeback", lambda state: writeback(state, config))
 
     graph.set_entry_point("judge")
 

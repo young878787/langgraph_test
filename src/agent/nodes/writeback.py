@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+from agent.config import AgentConfig
 from agent.llm.output_parser import smart_truncate
+from agent.memory_quality import (
+    build_structured_fallback,
+    clean_summary_output,
+    extract_ai_memory,
+    is_structured_memory,
+    validate_summary,
+)
 from agent.state import AgentState
 from agent.task_status import build_task_status, format_task_status_for_summary
 
@@ -12,113 +20,115 @@ def _build_summary_prompt(messages: list[dict], existing_summary: str) -> str:
         lines.append(f"{role}: {entry['content']}")
     new_text = "\n".join(lines)
 
-    base_instructions = (
-        "【摘要萃取準則】\n"
-        "1. **意圖區分**：明確區分「誰提議/陳述」與「對方的實際態度（如：拒絕、敷衍、迴避、條件性接受）」，絕不可將單方面提議誤認為雙方共識。\n"
-        "2. **狀態轉折**：保留對話中的情緒變化或話題切換過程，而非只記錄最終結果。\n"
-        "3. **客觀陳述**：如遇混亂或無意義閒扯，僅需簡述「雙方進行了無特定主題的閒聊/互相吐槽」，避免過度腦補不存在的邏輯。\n"
-        "4. **事實提煉**：優先保留對話中出現的具體偏好、事件或承諾。\n"
+    format_instructions = (
+        "請把這段對話整理成一份繁體中文結構化摘要，使用以下七個區塊，"
+        "每個區塊使用 '### 數字. 區塊名稱' 標題，列表項目使用 '- ' 開頭：\n"
+        "1. 對話總覽：簡短概述本次對話主題與情緒走向。\n"
+        "2. 使用者相關記憶：使用者的偏好、習慣、行為事件。\n"
+        "3. AI 人設/偏好記憶：AI 角色應堅持的設定與偏好。\n"
+        "4. 共同事實 / 任務狀態：雙方約定、待辦、數值。\n"
+        "5. 待確認/不確定項目：推論或未證實內容。\n"
+        "6. 標籤：3-5 個分類標籤，用 '#' 開頭，以空格分隔。\n"
+        "7. 摘要原文：用 2-4 句連貫敘述整段對話，供人類閱讀。\n\n"
+        "注意：\n"
+        "- 不要標註來源輪次或場景編號。\n"
+        "- 不要覆述這段指示，直接輸出摘要本身。\n\n"
+        "輸出格式範例：\n"
+        "```\n"
+        "### 1. 對話總覽\n"
+        "使用者與 AI 進行輕鬆調侃，話題圍繞晚餐與遊戲操作，整體情緒輕鬆。\n\n"
+        "### 2. 使用者相關記憶\n"
+        "- 記得 AI 討厭青椒\n"
+        "- 喜歡調侃 AI 的遊戲操作\n\n"
+        "### 3. AI 人設/偏好記憶\n"
+        "- 討厭青椒\n"
+        "- 被稱讚會害羞\n\n"
+        "### 4. 共同事實 / 任務狀態\n"
+        "- 當下遊戲進行中\n"
+        "- 遊戲評分 8/10\n\n"
+        "### 5. 待確認/不確定項目\n"
+        "- 使用者提出的懲罰是否會執行\n\n"
+        "### 6. 標籤\n"
+        "#飲食偏好 #遊戲 #傲嬌互動\n\n"
+        "### 7. 摘要原文\n"
+        "使用者調侃 AI 今天比較晚開台，AI 傲嬌地辯稱是為了數據表現...\n"
+        "```"
     )
 
     if existing_summary:
         return (
-            "請將以下新對話的互動過程，精準合併到現有摘要中（繁體中文，≤350字）。\n"
-            f"{base_instructions}\n"
-            "只輸出摘要內容，不要加標題或前綴。\n\n"
-            f"現有摘要：{existing_summary}\n\n"
+            f"{format_instructions}\n\n"
+            f"現有摘要：\n{existing_summary}\n\n"
             f"新對話：\n{new_text}\n\n"
-            "摘要內容："
+            "請輸出『現有摘要 + 新對話』整合後的完整結構化摘要："
         )
     else:
         return (
-            "請將以下對話片段濃縮成簡短摘要（繁體中文，≤250字）。\n"
-            f"{base_instructions}\n"
-            "只輸出摘要內容，不要加標題或前綴。\n\n"
-            f"{new_text}\n\n"
-            "摘要內容："
+            f"{format_instructions}\n\n"
+            f"新對話：\n{new_text}\n\n"
+            "結構化摘要內容："
         )
-
-def _build_entity_prompt(messages: list[dict]) -> str:
-    lines = []
-    for entry in messages:
-        role = "使用者" if entry["role"] == "user" else "AI"
-        lines.append(f"{role}: {entry['content']}")
-    new_text = "\n".join(lines)
-
-    return (
-        "請從以下對話中，提取出與「世界狀態(World State)」相關的具體實體記憶。\n"
-        "世界狀態包含：直播環節（如正在玩的遊戲與關卡進度）、聊天室與實況主的共同約定、內梗（Running jokes）、剛發生的具體事件或強烈的情緒轉折。\n"
-        "必須盡可能詳實記錄有意義的上下文，保留足夠的細節，不要過度省略。\n"
-        "若無任何有意義的資訊，請直接回答「無新記憶」。\n\n"
-        "請以條列式輸出（不要包含前綴）：\n"
-        "【世界狀態】：...\n\n"
-        f"新對話：\n{new_text}\n\n"
-        "提取結果："
-    )
 
 
 def _clean_summary_output(text: str) -> str:
-    cleaned = text.strip()
-    prefixes = (
-        "輸出更新後的完整摘要：",
-        "輸出更新後的完整摘要:",
-        "輸出摘要：",
-        "輸出摘要:",
-        "摘要內容：",
-        "摘要內容:",
-    )
-    changed = True
-    while changed:
-        changed = False
-        cleaned = cleaned.strip()
-        for prefix in prefixes:
-            if cleaned.startswith(prefix):
-                cleaned = cleaned[len(prefix):].strip()
-                changed = True
-    return cleaned
+    return clean_summary_output(text)
 
 
-def _summarize_worker(provider, messages: list[dict], existing_summary: str, result_holder: dict):
+def _validate_summary(text: str) -> bool:
+    return validate_summary(text)
+
+
+def _mechanical_fallback(messages: list[dict]) -> str:
+    """舊函式名保留相容；實際回傳低信心結構化摘要。"""
+    return build_structured_fallback(messages)
+
+
+def _summarize_worker(
+    provider,
+    messages: list[dict],
+    existing_summary: str,
+    result_holder: dict,
+    max_tokens: int = 1000,
+):
+    prompt = _build_summary_prompt(messages, existing_summary)
+    last_raw = ""
+    last_error: Exception | None = None
+
     try:
-        prompt = _build_summary_prompt(messages, existing_summary)
-        summary = provider.summarize(prompt)
-
-        if summary is None:
-            from agent.logger import log_error
-            log_error(
-                "writeback", "_summarize_worker",
-                RuntimeError("provider.summarize() 回傳 None（API 可能失敗或回應為空）"),
-                {"provider": type(provider).__name__, "prompt_len": len(prompt),
-                 "has_existing_summary": bool(existing_summary)},
-            )
-            print(f"⚠️ [記憶摘要] provider.summarize() 回傳 None — provider={type(provider).__name__}")
-            result_holder["result"] = ""
-        elif not summary.strip():
-            from agent.logger import log_error
-            log_error(
-                "writeback", "_summarize_worker",
-                RuntimeError("provider.summarize() 回傳空字串"),
-                {"provider": type(provider).__name__, "prompt_len": len(prompt)},
-            )
-            print(f"⚠️ [記憶摘要] provider.summarize() 回傳空字串 — provider={type(provider).__name__}")
-            result_holder["result"] = ""
-        else:
-            result_holder["result"] = _clean_summary_output(summary)
-
-        # 實體記憶萃取
-        entity_prompt = _build_entity_prompt(messages)
-        entities = provider.summarize(entity_prompt)
-        if entities and "無新記憶" not in entities:
-            from agent.logger import WORLD_STATE_MD
+        for attempt in range(3):
             try:
-                import re
-                world_match = re.search(r"【世界狀態】[：:](.*?)$", entities, re.DOTALL)
-                if world_match and world_match.group(1).strip():
-                    with open(WORLD_STATE_MD, "a", encoding="utf-8") as f:
-                        f.write(f"- {world_match.group(1).strip()}\n")
-            except Exception as e:
-                print(f"寫入實體記憶失敗: {e}")
+                summary = provider.summarize(prompt, max_tokens=max_tokens)
+            except Exception as exc:
+                last_error = exc
+                continue
 
+            if summary is None:
+                continue
+
+            cleaned = _clean_summary_output(summary)
+            if _validate_summary(cleaned) and is_structured_memory(cleaned):
+                result_holder["result"] = extract_ai_memory(cleaned)
+                result_holder["full_markdown"] = cleaned
+                result_holder["source"] = "llm"
+                return
+            else:
+                last_raw = summary[:1000]
+
+        # 三次嘗試皆未通過驗證，使用結構化 fallback
+        fallback = build_structured_fallback(messages)
+        result_holder["result"] = extract_ai_memory(fallback)
+        result_holder["full_markdown"] = fallback
+        result_holder["source"] = "structured_fallback"
+        if last_raw:
+            result_holder["rejected_output"] = last_raw
+        if last_error:
+            from agent.logger import log_error
+            log_error(
+                "writeback", "_summarize_worker",
+                last_error,
+                {"provider": type(provider).__name__, "prompt_len": len(prompt),
+                 "has_existing_summary": bool(existing_summary), "attempts": 3},
+            )
     except Exception as exc:
         from agent.logger import log_error
         log_error(
@@ -128,12 +138,16 @@ def _summarize_worker(provider, messages: list[dict], existing_summary: str, res
              "has_existing_summary": bool(existing_summary)},
         )
         print(f"❌ [記憶摘要] _summarize_worker 例外: {type(exc).__name__}: {exc}")
-        result_holder["result"] = ""
+        fallback = build_structured_fallback(messages)
+        result_holder["result"] = extract_ai_memory(fallback)
+        result_holder["full_markdown"] = fallback
+        result_holder["source"] = "structured_fallback"
     finally:
         result_holder["done"] = True
 
 
-def writeback(state: AgentState) -> AgentState:
+def writeback(state: AgentState, config: AgentConfig | None = None) -> AgentState:
+    cfg = config or AgentConfig()
     stance = state.get("action_stance", "tsundere_service")
     stance_history = list(state.get("stance_history", []))
     stance_history.append(stance)
@@ -171,14 +185,14 @@ def writeback(state: AgentState) -> AgentState:
                 memory_summary_buffer = memory_summary_buffer[batch_size:]
             # 記錄記憶摘要到 logs/memory.md
             from agent.logger import log_memory_summary
-            from agent.config import AgentConfig as _ACfg
-            _cfg2 = _ACfg()
             log_memory_summary(
                 turn=pending_summary.get("trigger_turn", state.get("turn_count", 0)),
                 input_text=pending_summary.get("input_text", ""),
-                output_text=result,
-                model=_cfg2.memory_model or "default",
+                output_text=pending_summary.get("full_markdown", result),
+                ai_memory=result,
+                model=cfg.memory_model or "default",
                 existing_memory=pending_summary.get("existing_memory", ""),
+                source=pending_summary.get("source", "llm"),
             )
         pending_summary = {}
 
@@ -192,14 +206,12 @@ def writeback(state: AgentState) -> AgentState:
         memory_summary_buffer.extend(new_messages)
 
     # ── Step 3: 短期上下文只保留最近 N 輪，長期記憶由 buffer 批次摘要 ──
-    from agent.config import AgentConfig
-    _cfg = AgentConfig()
-    max_short_messages = max(1, _cfg.max_history_turns) * 2
+    max_short_messages = max(1, cfg.max_history_turns) * 2
     if len(conversation_history) > max_short_messages:
         conversation_history = conversation_history[-max_short_messages:]
 
     # ── Step 4: 待摘要 buffer 滿一批才觸發摘要（預設 10 輪 = 20 條訊息） ──
-    threshold = _cfg.memory_summary_threshold
+    threshold = cfg.memory_summary_threshold
 
     if memory_enabled and len(memory_summary_buffer) >= threshold:
         pending_active = bool(pending_summary) and not pending_summary.get("done")
@@ -216,7 +228,7 @@ def writeback(state: AgentState) -> AgentState:
             input_text = "\n".join(input_lines)
 
             from agent.llm.providers import get_provider
-            provider = get_provider(_cfg)
+            provider = get_provider(cfg)
             if provider:
                 holder = {
                     "done": False,
@@ -225,34 +237,56 @@ def writeback(state: AgentState) -> AgentState:
                     "trigger_turn": state.get("turn_count", 0) + 1,
                     "existing_memory": existing,
                     "batch_size": len(to_summarize),
+                    "source": "llm",
                 }
-                _summarize_worker(provider, to_summarize, existing, holder)
+                _summarize_worker(
+                    provider,
+                    to_summarize,
+                    existing,
+                    holder,
+                    max_tokens=cfg.memory_max_output_tokens,
+                )
                 result = holder.get("result", "")
-                if result:
+                source = holder.get("source", "failed")
+
+                # 無論成功或失敗都清空已摘要的 buffer，避免無限增長
+                memory_summary_buffer = memory_summary_buffer[len(to_summarize):]
+
+                if result and _validate_summary(result):
                     long_term_memory = result
-                    memory_summary_buffer = memory_summary_buffer[len(to_summarize):]
-
                     from agent.logger import log_memory_summary
-
                     log_memory_summary(
                         turn=holder["trigger_turn"],
                         input_text=input_text,
-                        output_text=result,
-                        model=_cfg.memory_model or "default",
+                        output_text=holder.get("full_markdown", result),
+                        ai_memory=result,
+                        model=cfg.memory_model or "default",
                         existing_memory=existing,
+                        source=source,
+                        rejected_output=holder.get("rejected_output", ""),
                     )
+                    if source != "llm":
+                        print(
+                            f"⚠️ [記憶摘要] Turn {holder['trigger_turn']}: "
+                            f"使用 {source} 更新長期記憶。"
+                        )
                 else:
-                    # 摘要結果為空 — 記錄到 memory.md 以便偵錯
+                    # 摘要完全無效 — 保留舊摘要，並將原始輸出寫入 memory.md 供偵錯
                     from agent.logger import log_memory_summary
                     log_memory_summary(
                         turn=holder["trigger_turn"],
                         input_text=input_text,
-                        output_text="❌ 摘要失敗：provider.summarize() 回傳空結果",
-                        model=_cfg.memory_model or "default",
+                        output_text=holder.get("full_markdown", result) or "❌ 摘要失敗：無有效摘要輸出",
+                        ai_memory=result or "",
+                        model=cfg.memory_model or "default",
                         existing_memory=existing,
+                        source=source,
+                        rejected_output=holder.get("rejected_output", ""),
                     )
-                    print(f"⚠️ [記憶摘要] Turn {holder['trigger_turn']}: 摘要結果為空，已記錄到 memory.md")
-                    pending_summary = {}
+                    print(
+                        f"⚠️ [記憶摘要] Turn {holder['trigger_turn']}: "
+                        f"摘要結果無效，保留舊摘要。source={source}"
+                    )
 
     # ── Step 5: 生成輕量狀態摘要（純狀態追蹤，不含對話內容） ──
     turn_count = state.get("turn_count", 0) + 1
@@ -289,14 +323,14 @@ def writeback(state: AgentState) -> AgentState:
     resolved_emotion = state.get("resolved_emotion", {})
     character_state = state.get("character_state", {})
     perf_output = dict(state.get("performance_output", {}))
-    
+
     perf_output["live2d"] = {
         "expression": resolved_emotion.get("base", "neutral"),
         "intensity": resolved_emotion.get("intensity", 0.5),
         "eye_contact": 0.8 if character_state.get("confidence", 0.5) > 0.6 else 0.4,
         "blush_level": character_state.get("embarrassment", 0.0)
     }
-    
+
     perf_output["tts"] = {
         "speed": 1.2 if character_state.get("tension", 0.1) > 0.6 else (0.8 if resolved_emotion.get("base") == "sad" else 1.0),
         "pitch": 1.1 if character_state.get("energy", 0.5) > 0.7 else 1.0,
