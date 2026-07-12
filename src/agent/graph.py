@@ -6,6 +6,7 @@ from agent.config import AgentConfig
 from agent.state import AgentState, initial_state
 from agent.nodes import (
     judge_input,
+    decide_defect_strategy,
     should_apply_emotion_event,
     tick_emotion,
     update_emotion,
@@ -26,6 +27,7 @@ def build_graph(config: AgentConfig | None = None, interrupt_before_respond: boo
     graph.add_node("judge", lambda state: judge_input(state, config))
     graph.add_node("emotion", lambda state: update_emotion(state, config))
     graph.add_node("emotion_tick", lambda state: tick_emotion(state, config))
+    graph.add_node("stance", lambda state: decide_defect_strategy(state, config))
     graph.add_node("tone", lambda state: build_tone_strategy(state, config))
     graph.add_node("respond", lambda state: generate_response(state, config))
     graph.add_node("writeback", lambda state: writeback(state, config))
@@ -40,8 +42,9 @@ def build_graph(config: AgentConfig | None = None, interrupt_before_respond: boo
             "tone": "emotion_tick",
         },
     )
-    graph.add_edge("emotion", "tone")
-    graph.add_edge("emotion_tick", "tone")
+    graph.add_edge("emotion", "stance")
+    graph.add_edge("emotion_tick", "stance")
+    graph.add_edge("stance", "tone")
     graph.add_edge("tone", "respond")
     graph.add_edge("respond", "writeback")
     graph.add_edge("writeback", END)

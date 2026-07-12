@@ -15,6 +15,7 @@ if str(SRC_PATH) not in sys.path:
 from agent.config import AgentConfig
 from agent.llm.validators import fallback_response
 from agent.nodes.emotion import should_apply_emotion_event, tick_emotion, update_emotion
+from agent.nodes.defect import decide_defect_strategy
 from agent.nodes.judge import judge_input
 from agent.nodes.response import generate_response
 from agent.nodes.tone import build_tone_strategy
@@ -86,6 +87,7 @@ def _run_turn(
         state.update(update_emotion(state, config))
     else:
         state.update(tick_emotion(state, config))
+    state.update(decide_defect_strategy(state, config))
     state.update(build_tone_strategy(state, config))
 
     task_status_in_prompt = should_include_task_status_for_response(state)

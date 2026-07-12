@@ -11,11 +11,24 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 from agent.config import AgentConfig
+from agent.graph import build_graph
 from agent.llm.judge_validators import parse_judge_output_v2
 from agent.nodes.emotion import project_activation, tick_emotion, update_emotion
 from agent.nodes.tone import build_tone_strategy
 from agent.nodes.tone_performance import resolve_vtuber_emotion
 from agent.state import initial_state
+
+
+class PipelineOrderingTests(unittest.TestCase):
+    def test_stance_is_resolved_after_emotion_transition(self) -> None:
+        graph = build_graph(AgentConfig()).get_graph()
+        edges = {(edge.source, edge.target) for edge in graph.edges}
+
+        self.assertIn(("emotion", "stance"), edges)
+        self.assertIn(("emotion_tick", "stance"), edges)
+        self.assertIn(("stance", "tone"), edges)
+        self.assertNotIn(("emotion", "tone"), edges)
+        self.assertNotIn(("emotion_tick", "tone"), edges)
 
 
 class JudgeValidatorTests(unittest.TestCase):

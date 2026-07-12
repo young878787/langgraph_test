@@ -123,6 +123,8 @@ flowchart LR
 
 表演對內在的回饋可以保留，但應放到回合後的次要 feedback，而不是本輪主要 state transition。
 
+**2026-07-12 修正：** 已將 `decide_defect_strategy()` 從 `judge_input()` 拆出為獨立 `stance` 節點，控制順序調整為 `judge → emotion / emotion_tick → stance → tone`。目前內在狀態先依事件 appraisal 完成 transition，stance 再讀取更新後的 `emotion`；`update_emotion()` 不讀 `action_stance`，因此本輪隨機表演姿態不再成為主要情緒轉移來源。`scripts/replay_pipeline.py` 亦同步採用相同順序，並由 graph topology regression 鎖定此 contract。回合後 expression feedback 尚未新增，避免在沒有明確 reducer contract 前重新引入反向污染。
+
 ### 4.3 `acting_brief` 是目前最可惜的未投影能力
 
 `tone_performance.py` 已清楚區分：

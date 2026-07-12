@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import random
-
 from agent.config import AgentConfig
 from agent.state import AgentState
 from agent.llm.judging import build_judge_prompts
 from agent.llm.judge_validators import build_rule_event_analysis, parse_judge_output_v2
 from agent.llm.providers import get_provider
 from agent.nodes.classifier import classify_input
-from agent.nodes.defect import decide_defect_strategy
 from agent.logger import log_error
 from agent.task_status import is_fake_praise_for_unproduced_task
 
@@ -109,9 +106,7 @@ def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
         result["judge_error"] = judge_error or "Judge LLM 連續兩次呼叫失敗"
         result["judge_raw_response"] = _fmt_judge_raw(raw1, raw2)
         
-        merged_state = {**state, **result}
-        stance_result = decide_defect_strategy(merged_state, config)
-        return {**result, **stance_result}
+        return result
 
     category = decision_data.get("category", "normal")
     fake_praise = _check_fake_praise(state)
@@ -145,6 +140,4 @@ def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
         "event_analysis": decision_data,  # Store the full rich JSON from LLM
     }
 
-    merged_state = {**state, **result}
-    stance_result = decide_defect_strategy(merged_state, config)
-    return {**result, **stance_result}
+    return result
