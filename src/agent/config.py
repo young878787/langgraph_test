@@ -165,12 +165,14 @@ class AgentConfig:
     burst_threshold: int = 3
     memory_enabled: bool = True
     max_history_turns: int = 10
-    summary_interval: int = 5
     memory_model: str = field(
-        default_factory=lambda: os.getenv("MEMORY_MODEL", "")
+        default_factory=lambda: os.getenv("MEMORY_MODEL", "gemma-4-31b-it")
     )
     memory_summary_threshold: int = field(
         default_factory=lambda: int(os.getenv("MEMORY_SUMMARY_THRESHOLD", "20"))
+    )
+    memory_max_output_tokens: int = field(
+        default_factory=lambda: int(os.getenv("MEMORY_MAX_OUTPUT_TOKENS", "1000"))
     )
     short_chance: float = field(
         default_factory=lambda: float(os.getenv("SHORT_CHANCE", "0.45"))

@@ -177,6 +177,9 @@ def continuous_validation():
                 provider_history_count=state.get("provider_history_count"),
                 provider_history_preview=state.get("provider_history_preview", ""),
                 stance_reason=state.get("flow_reason", ""),
+                response_flow=state.get("response_flow", ""),
+                response_goal=state.get("response_goal", ""),
+                raw_llm_response=state.get("raw_llm_response", ""),
             )
         except Exception as e:
             log_error(module="main", function="continuous_validation", error=e,
@@ -254,6 +257,7 @@ def interactive_chat():
                 from agent.llm.providers import get_provider
                 from agent.llm.prompting import build_prompts, format_provider_history_preview
                 from agent.nodes.writeback import writeback
+                from agent.nodes.response import coerce_plain_response
                 from agent.llm.validators import is_on_strategy, fallback_response
                 from agent.llm.output_parser import smart_truncate
 
@@ -302,6 +306,7 @@ def interactive_chat():
                 from agent.llm.providers import clean_response
                 full_response = clean_response(full_response)
                 if full_response:
+                    full_response = coerce_plain_response(full_response)
                     full_response = smart_truncate(full_response, max_output_tokens)
 
                 response_length = state.get("response_length", "medium")
@@ -317,7 +322,7 @@ def interactive_chat():
                 state["response"] = full_response
                 state["system_prompt"] = system_prompt
 
-                state.update(writeback(state))
+                state.update(writeback(state, config))
             else:
                 state = graph.invoke(state)
                 response = state.get("response", "")
@@ -345,7 +350,9 @@ def interactive_chat():
                     provider_history_count=state.get("provider_history_count"),
                     provider_history_preview=state.get("provider_history_preview", ""),
                     response_flow=state.get("response_flow", ""),
+                    response_goal=state.get("response_goal", ""),
                     flow_reason=state.get("flow_reason", ""),
+                    raw_llm_response=state.get("raw_llm_response", ""),
                 )
             except Exception as e:
                 log_error(module="main", function="interactive_chat", error=e,
@@ -430,6 +437,7 @@ def continuous_chat_mode():
                 from agent.llm.providers import get_provider
                 from agent.llm.prompting import build_prompts, format_provider_history_preview
                 from agent.nodes.writeback import writeback
+                from agent.nodes.response import coerce_plain_response
                 from agent.llm.validators import is_on_strategy, fallback_response
                 from agent.llm.output_parser import smart_truncate
 
@@ -480,6 +488,7 @@ def continuous_chat_mode():
                 from agent.llm.providers import clean_response
                 full_response = clean_response(full_response)
                 if full_response:
+                    full_response = coerce_plain_response(full_response)
                     full_response = smart_truncate(full_response, max_output_tokens)
 
                 response_length = state.get("response_length", "medium")
@@ -495,7 +504,7 @@ def continuous_chat_mode():
                 state["response"] = full_response
                 state["system_prompt"] = system_prompt
 
-                state.update(writeback(state))
+                state.update(writeback(state, config))
             else:
                 state = graph.invoke(state)
                 response = state.get("response", "")
@@ -529,14 +538,16 @@ def continuous_chat_mode():
                     provider_history_count=state.get("provider_history_count"),
                     provider_history_preview=state.get("provider_history_preview", ""),
                     response_flow=state.get("response_flow", ""),
+                    response_goal=state.get("response_goal", ""),
                     flow_reason=state.get("flow_reason", ""),
+                    raw_llm_response=state.get("raw_llm_response", ""),
                 )
             except Exception as e:
                 log_error(module="main", function="continuous_chat_mode", error=e,
                            context={"turn": turn_number, "reason": "log_prompt_failed"})
 
             print(f"  🎭 {_fmt_emotion_bar(curr_emotion)} | "
-                  f"{_fmt_defect_emoji(strategy)} | "
+                  f"{_fmt_defect_emoji(stance)} | "
                   f"🧭 {state.get('response_flow', '未設定')} | "
                   f"📝 記憶: {turn_number} 輪 | "
                   f"{'⚡' + trigger if trigger else ''}")

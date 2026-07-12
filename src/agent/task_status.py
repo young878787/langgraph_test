@@ -39,6 +39,12 @@ _RESULT_REFERENCE_MARKERS = (
     "剛剛那個",
 )
 
+_TASK_STATUS_CONTEXT_CATEGORIES = {
+    "questioning",
+    "praise",
+    "flirt",
+}
+
 
 def detect_requested_artifact(text: str) -> str:
     lowered = text.lower()
@@ -126,3 +132,24 @@ def format_task_status_for_prompt(status: dict[str, object]) -> str:
         f"結果：{outcome}，{produced}",
     ]
     return "；".join(str(part) for part in parts if part)
+
+
+def should_include_task_status_for_response(state: AgentState) -> bool:
+    status = state.get("last_task_status", {})
+    if not status:
+        return False
+
+    if state.get("fake_praise"):
+        return True
+
+    user_input = state.get("user_input", "")
+    if any(marker in user_input for marker in _RESULT_REFERENCE_MARKERS):
+        return True
+
+    category = state.get("category", "normal")
+    outcome = status.get("outcome", "")
+
+    if outcome in ("partial", "rejected") and category in _TASK_STATUS_CONTEXT_CATEGORIES:
+        return True
+
+    return False

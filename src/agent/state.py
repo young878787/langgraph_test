@@ -6,6 +6,32 @@ from agent.config import AgentConfig
 
 Category = Literal["normal", "negative_feedback", "sensitive_topic", "task_request", "creative_task", "questioning", "praise", "flirt", "farewell"]
 ResponseLength = Literal["short", "medium", "long", "long_long"]
+ResponseGoal = Literal[
+    "answer_user",
+    "acknowledge_emotion",
+    "repair_misunderstanding",
+    "close_conversation",
+    "maintain_boundary",
+    "continue_banter",
+]
+ResponseFlow = Literal[
+    "direct_answer",
+    "dry_answer",
+    "tease_then_answer",
+    "dodge_first",
+    "sudden_helpful",
+    "overhelp_then_deny",
+    "deny_then_soften",
+    "emotional_leak",
+    "topic_bounce",
+    "authority_bluff",
+    "deadpan_deny",
+    "counter_accuse",
+    "spiral_rant",
+    "slip_then_cover",
+    "burst_then_comply",
+    "hard_deflect",
+]
 
 ActionStance = Literal[
     "tsundere_service",
@@ -85,7 +111,20 @@ class AgentState(TypedDict, total=False):
     action_stance: ActionStance
     stance_history: List[ActionStance]
     consecutive_same_stance: int
+    response_flow: ResponseFlow
+    response_flow_history: List[ResponseFlow]
+    response_goal: ResponseGoal
     flow_reason: str
+    
+    # VTuber Emotion System fields
+    character_state: Dict[str, float]
+    character_state_diff: Dict[str, float]
+    state_transition_reason: dict
+    event_analysis: dict
+    resolved_emotion: dict
+    acting_brief: dict
+    expression_projection: dict
+    performance_output: dict
     
     stream_phase: StreamPhase
     chat_vibe: str
@@ -119,6 +158,7 @@ class AgentState(TypedDict, total=False):
     provider_history_preview: str
     fake_praise: bool
     last_task_status: Dict[str, object]
+    raw_llm_response: str
 
 
 def initial_state(config: AgentConfig) -> AgentState:
@@ -130,6 +170,9 @@ def initial_state(config: AgentConfig) -> AgentState:
         "traits": dict(config.traits),
         "stance_history": [],
         "consecutive_same_stance": 0,
+        "response_flow": "direct_answer",
+        "response_flow_history": [],
+        "response_goal": "continue_banter",
         "flow_reason": "initial",
         "stream_phase": "unknown",
         "chat_vibe": "",
@@ -158,4 +201,26 @@ def initial_state(config: AgentConfig) -> AgentState:
         "reasoning_model": config.reasoning_model,
         "fallback_used": False,
         "response_length": "medium",
+        "character_state": {
+            "mood": 0.55,
+            "energy": 0.60,
+            "tension": 0.10,
+            "intimacy": 0.20,
+            "embarrassment": 0.0,
+            "confidence": 0.50,
+            "playfulness": 0.45,
+            "annoyance": 0.0,
+            "masking": 0.35,
+            "dominance": 0.40,
+            "sadness": 0.0,
+            "hostility": 0.0,
+            "boundary_pressure": 0.0
+        },
+        "event_analysis": {},
+        "character_state_diff": {},
+        "state_transition_reason": {},
+        "resolved_emotion": {},
+        "acting_brief": {},
+        "expression_projection": {},
+        "performance_output": {}
     }

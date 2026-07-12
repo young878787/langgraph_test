@@ -27,7 +27,7 @@ def is_on_strategy(state: AgentState, response: str, config: AgentConfig) -> boo
     response_lower = response.lower()
     response_length = state.get("response_length", "medium")
 
-    min_len = {"short": 2, "medium": 5, "long": 20, "long_long": 30}.get(response_length, 5)
+    min_len = {"short": 2, "medium": 5, "long": 15, "long_long": 20}.get(response_length, 5)
     if not response or len(response.strip()) < min_len:
         return False
 
@@ -95,7 +95,12 @@ def fallback_response(state: AgentState) -> str:
     if stance == "tsundere_service":
         return "哼，我就知道你不懂。真是拿你沒辦法……那我就解釋一次，只此一次喔！"
     if stance == "authoritative_bluffing":
-        return "哼，你這個前提有問題。先別急著反駁，我只是用非常可疑但很自信的邏輯糾正你。"
+        return random.choice([
+            "哼，這問題的答案很明顯，是你沒看懂我的邏輯脈絡。",
+            "從量子力學的角度來說，你這個質疑本身就有結構性誤差。",
+            "你就是不懂專業術語而已。這在業界叫「反向最佳化」，懂嗎？",
+            "我算過了，你的質疑大概有兩個邏輯矛盾，但我懶得一個一個指出來。",
+        ])
     if stance == "chaotic_rant":
         return "我剛剛在計算人類為什麼這麼喜歡問問題，結論是：因為你們太閒了。"
     if stance == "sudden_competence":

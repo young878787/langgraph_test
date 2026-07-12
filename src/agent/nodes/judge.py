@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import random
-
 from agent.config import AgentConfig
 from agent.state import AgentState
 from agent.llm.judging import build_judge_prompts
-from agent.llm.judge_validators import parse_judge_output_v2
+from agent.llm.judge_validators import build_rule_event_analysis, parse_judge_output_v2
 from agent.llm.providers import get_provider
 from agent.nodes.classifier import classify_input
-from agent.nodes.defect import decide_defect_strategy
 from agent.logger import log_error
 from agent.task_status import is_fake_praise_for_unproduced_task
 
@@ -57,6 +54,9 @@ def _run_smart_fallback(state: AgentState, config: AgentConfig) -> AgentState:
         category = "questioning"
 
     requires_action = category in ("task_request", "creative_task")
+    event_analysis = build_rule_event_analysis(category)
+    event_analysis["ambiguous_flag"] = bool(classification.get("ambiguous_flag")) or fake_praise
+    event_analysis["requires_action"] = requires_action
 
     return {
         **classification,
@@ -70,6 +70,7 @@ def _run_smart_fallback(state: AgentState, config: AgentConfig) -> AgentState:
         "sarcasm_possible": False,
         "requires_action": requires_action,
         "intent_target": "assistant" if category != "normal" else "unknown",
+        "event_analysis": event_analysis,
     }
 
 
@@ -105,14 +106,21 @@ def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
         result["judge_error"] = judge_error or "Judge LLM 連續兩次呼叫失敗"
         result["judge_raw_response"] = _fmt_judge_raw(raw1, raw2)
         
-        merged_state = {**state, **result}
-        stance_result = decide_defect_strategy(merged_state, config)
-        return {**result, **stance_result}
+        return result
 
     category = decision_data.get("category", "normal")
     fake_praise = _check_fake_praise(state)
     if fake_praise:
         category = "questioning"
+        decision_data = {
+            **decision_data,
+            "category": "questioning",
+            "event_type": "questioning",
+            "validation_warnings": [
+                *decision_data.get("validation_warnings", []),
+                "fake_praise_reclassified",
+            ],
+        }
 
     result = {
         "category": category,
@@ -129,8 +137,7 @@ def judge_input(state: AgentState, config: AgentConfig) -> AgentState:
         "sarcasm_possible": bool(decision_data.get("sarcasm_possible")),
         "requires_action": bool(decision_data.get("requires_action")),
         "intent_target": decision_data.get("intent_target", "unknown"),
+        "event_analysis": decision_data,  # Store the full rich JSON from LLM
     }
 
-    merged_state = {**state, **result}
-    stance_result = decide_defect_strategy(merged_state, config)
-    return {**result, **stance_result}
+    return result

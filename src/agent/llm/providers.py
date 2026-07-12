@@ -19,7 +19,18 @@ def clean_response(raw_response: str) -> str:
     if not raw_response:
         return ""
 
-    cleaned = re.sub(r'<think>.*?</think>', '', raw_response, flags=re.DOTALL)
+    cleaned = re.sub(r'<think>.*?</think>', '', raw_response, flags=re.DOTALL).strip()
+
+    # 如果去掉 <think> 後，內容包含合法的 JSON 物件，就直接提取並回傳，避免後續中文過濾破壞結構
+    start = cleaned.find('{')
+    end = cleaned.rfind('}')
+    if start != -1 and end != -1 and end > start:
+        candidate = cleaned[start:end+1]
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass
 
     lines = cleaned.split('\n')
     cleaned_lines = []
@@ -268,37 +279,27 @@ class OpenRouterProvider(LLMProvider):
         raw = self._make_request(messages, temperature, max_output_tokens)
         return clean_response(raw)
 
-    def summarize(self, prompt: str, max_tokens: int = 300) -> str | None:
+    def summarize(self, prompt: str, max_tokens: int = 1000) -> str | None:
         """使用記憶模型摘要對話。若 MEMORY_MODEL 未設定則 fallback 到主模型。"""
         model = os.getenv("MEMORY_MODEL", "") or self.model
         messages = [{"role": "user", "content": prompt}]
         try:
-            payload = {
-                "model": model,
-                "messages": messages,
-                "temperature": 0.3,
-            }
-            if max_tokens is not None:
-                payload["max_tokens"] = max_tokens
-            data = json.dumps(payload).encode("utf-8")
-            request = urllib.request.Request(
-                "https://openrouter.ai/api/v1/chat/completions",
-                data=data,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "LangGraph-Agent/1.0",
-                },
-                method="POST",
+            # 暫時切換模型以重用 _make_request（含 3 次重試 + rate limit 處理）
+            original_model = self.model
+            self.model = model
+            try:
+                raw = self._make_request(messages, 0.6, max_tokens)
+            finally:
+                self.model = original_model
+            return raw.strip() if raw else None
+        except Exception as exc:
+            log_error(
+                "providers", "OpenRouterProvider.summarize", exc,
+                {"model": model, "prompt_len": len(prompt)},
             )
-            with urllib.request.urlopen(request, timeout=30) as response:
-                body = response.read()
-                decoded = json.loads(body.decode("utf-8"))
-                if "choices" in decoded and decoded["choices"]:
-                    return decoded["choices"][0]["message"].get("content", "").strip() or None
-        except Exception:
-            pass
+            print(f"⚠️ [記憶摘要] OpenRouter summarize 失敗: {type(exc).__name__}: {exc}")
         return None
+
 
 
 class GoogleAIStudioProvider(LLMProvider):
@@ -497,7 +498,7 @@ class GoogleAIStudioProvider(LLMProvider):
             return "（API 暫時無法回應，請稍後重試）"
         return result
 
-    def summarize(self, prompt: str, max_tokens: int = 300) -> str | None:
+    def summarize(self, prompt: str, max_tokens: int = 1000) -> str | None:
         """使用記憶模型摘要對話。若 MEMORY_MODEL 未設定則 fallback 到主模型。"""
         model = os.getenv("MEMORY_MODEL", "") or self.model
         try:
@@ -506,14 +507,68 @@ class GoogleAIStudioProvider(LLMProvider):
                 model=model,
                 contents=[gt.Content(role="user", parts=[gt.Part(text=prompt)])],
                 config=gt.GenerateContentConfig(
-                    temperature=0.3,
+                    temperature=0.6,
                     max_output_tokens=max_tokens,
                 ),
             )
-            if response and response.text:
-                return response.text.strip()
-        except Exception:
-            pass
+
+            # 嘗試直接取 response.text（SDK 可能在安全過濾時拋 ValueError）
+            raw_text = None
+            try:
+                if response and response.text:
+                    raw_text = response.text.strip()
+            except (ValueError, AttributeError) as text_err:
+                # response.text 存取失敗，嘗試從 candidates 手動提取
+                log_error(
+                    "providers", "GoogleAIStudioProvider.summarize",
+                    text_err,
+                    {"model": model, "note": "response.text 存取失敗，嘗試 fallback"},
+                )
+
+            # Fallback: 手動從 candidates 提取文字
+            if not raw_text and hasattr(response, "candidates") and response.candidates:
+                candidate = response.candidates[0]
+                # 記錄 finish_reason 以供診斷
+                finish_reason = getattr(candidate, "finish_reason", None)
+                if hasattr(candidate, "content") and candidate.content:
+                    if hasattr(candidate.content, "parts") and candidate.content.parts:
+                        raw_text = candidate.content.parts[0].text.strip()
+
+                if not raw_text:
+                    # 有 candidate 但沒文字 — 可能是安全過濾
+                    safety_ratings = getattr(candidate, "safety_ratings", None)
+                    log_error(
+                        "providers", "GoogleAIStudioProvider.summarize",
+                        RuntimeError(f"API 回應無文字內容"),
+                        {"model": model, "finish_reason": str(finish_reason),
+                         "safety_ratings": str(safety_ratings)[:300] if safety_ratings else "N/A",
+                         "prompt_len": len(prompt)},
+                    )
+                    print(f"⚠️ [記憶摘要] Google summarize: 回應無文字 — finish_reason={finish_reason}")
+                    return None
+
+            # 完全沒有 candidates
+            if not raw_text:
+                has_candidates = hasattr(response, "candidates") and bool(response.candidates)
+                prompt_feedback = getattr(response, "prompt_feedback", None)
+                log_error(
+                    "providers", "GoogleAIStudioProvider.summarize",
+                    RuntimeError("API 回應為空（無 candidates）"),
+                    {"model": model, "has_candidates": has_candidates,
+                     "prompt_feedback": str(prompt_feedback)[:300] if prompt_feedback else "N/A",
+                     "prompt_len": len(prompt)},
+                )
+                print(f"⚠️ [記憶摘要] Google summarize: 回應完全為空 — has_candidates={has_candidates}, prompt_feedback={prompt_feedback}")
+                return None
+
+            return raw_text
+
+        except Exception as exc:
+            log_error(
+                "providers", "GoogleAIStudioProvider.summarize", exc,
+                {"model": model, "prompt_len": len(prompt)},
+            )
+            print(f"⚠️ [記憶摘要] Google summarize 失敗: {type(exc).__name__}: {exc}")
         return None
 
     def _generate_with_history_internal(

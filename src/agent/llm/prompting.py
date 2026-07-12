@@ -5,7 +5,36 @@ from typing import List
 from agent.llm.output_parser import smart_truncate
 from agent.state import AgentState, STANCE_LABELS, STANCE_DESCRIPTIONS
 from agent.llm.vocab import sample_vocab_palette, sample_tone_tweak
-from agent.task_status import format_task_status_for_prompt
+from agent.task_status import format_task_status_for_prompt, should_include_task_status_for_response
+
+
+FLOW_INSTRUCTIONS: dict[str, str] = {
+    "direct_answer": "直接回到使用者問題或情緒，少量角色語氣即可，不要繞圈。",
+    "dry_answer": "用短、乾、冷淡的方式回答，但語義要完整。",
+    "tease_then_answer": "先用一句短吐槽或抓語氣，再回答核心內容。",
+    "dodge_first": "先短暫嘴硬或閃躲，再立刻回到正題。",
+    "sudden_helpful": "這輪突然可靠，清楚完成需求，最後再輕微嘴硬。",
+    "overhelp_then_deny": "給得比對方預期更完整，最後否認自己是在幫忙。",
+    "deny_then_soften": "前半否認或嘴硬，後半放軟或承認一點在意。",
+    "emotional_leak": "不小心露出真心，再用短句掩飾。",
+    "topic_bounce": "短暫跑題一句，下一句必須拉回使用者當下話題。",
+    "authority_bluff": "用荒謬但自信的解釋硬凹，不捏造可查證來源。",
+    "deadpan_deny": "面無表情地否認或糾正，句子短直。",
+    "counter_accuse": "倒打一耙或反問對方，但不能完全逃避回答。",
+    "spiral_rant": "短暫暴走聯想，最後一句必須回到正題。",
+    "slip_then_cover": "先說漏一點真心或弱點，立刻用嘴硬遮住。",
+    "burst_then_comply": "先情緒爆一下，再照做或給出核心回應。",
+    "hard_deflect": "堅定拒絕或轉開不適合的要求，保持短句。",
+}
+
+GOAL_INSTRUCTIONS: dict[str, str] = {
+    "answer_user": "先處理使用者的問題或請求，再用少量人格語氣包裝。",
+    "acknowledge_emotion": "先承接使用者情緒或關係訊號，再用人格語氣回應。",
+    "repair_misunderstanding": "先糾正錯誤前提或誤會，再回到當下語境。",
+    "close_conversation": "先回應告別或晚安，再留下短促但有溫度的收尾。",
+    "maintain_boundary": "先清楚拒絕或設界線，語氣可以有角色感但不可模糊立場。",
+    "continue_banter": "順著當下話題自然接話，保持互動感，不要硬轉成任務回答。",
+}
 
 
 def _build_base_persona(state: AgentState) -> str:
@@ -54,7 +83,9 @@ def _build_live_context(state: AgentState) -> str:
         lines.append(f"觀眾/聊天室氛圍：{chat_vibe}")
 
     # 加入真實狀態約束
-    task_status_prompt = format_task_status_for_prompt(state.get("last_task_status", {}))
+    task_status_prompt = ""
+    if should_include_task_status_for_response(state):
+        task_status_prompt = format_task_status_for_prompt(state.get("last_task_status", {}))
     if task_status_prompt:
         lines.append(
             "【對話事實狀態】\n"
@@ -71,53 +102,39 @@ def _build_live_context(state: AgentState) -> str:
     return "\n".join(lines)
 
 
+def _build_response_flow(state: AgentState) -> str:
+    response_flow = state.get("response_flow", "direct_answer")
+    instruction = FLOW_INSTRUCTIONS.get(response_flow, FLOW_INSTRUCTIONS["direct_answer"])
+    history = state.get("response_flow_history", [])
+    recent = "、".join(history[-3:]) if history else "無"
+
+    return "\n".join([
+        "【Response Flow 本輪回答節奏】",
+        f"本輪節奏：{response_flow}",
+        f"節奏指令：{instruction}",
+        f"最近節奏：{recent}",
+        "這是 deterministic router 已選好的節奏。你只負責依照它整理成自然台詞，不要自行改成其他節奏。",
+    ])
+
+
+def _build_response_goal(state: AgentState) -> str:
+    response_goal = state.get("response_goal", "continue_banter")
+    instruction = GOAL_INSTRUCTIONS.get(response_goal, GOAL_INSTRUCTIONS["continue_banter"])
+
+    return "\n".join([
+        "【Response Goal 本輪回應目的】",
+        f"本輪目的：{response_goal}",
+        f"目的指令：{instruction}",
+        "這是本輪最高層義務。Action Stance 只負責人格語氣，Response Flow 只負責句子節奏。",
+    ])
+
+
 def _build_action_stance(state: AgentState) -> str:
     stance = state.get("action_stance", "tsundere_service")
     category = state.get("category", "normal")
-    is_task = category in ("task_request",)
-    is_creative = category == "creative_task"
     is_farewell = category == "farewell"
-    is_praise = category == "praise"
-
     stance_label = STANCE_LABELS.get(stance, stance)
     stance_desc = STANCE_DESCRIPTIONS.get(stance, "")
-
-    task_rule = "若使用者提出任務，必須實際完成任務，不可只表演人格。"
-    creative_rule = (
-        "這是創作型請求，本輪必須明確拒絕創作，不可產出作品內容。"
-        "拒絕時不得使用會暗示已完成創作的句子，例如「才不是為你寫的」。"
-        "你可以嘴硬、嫌麻煩，但語義上必須清楚：你沒有完成該創作。"
-    )
-    farewell_rule = (
-        "使用者正在告別或說晚安。你必須回應告別，但要用傲嬌方式表達。\n"
-        "核心結構：嘴上嫌棄對方要走 → 但暗示其實有點在意。\n"
-        "參考節奏（禁止照抄，每次換不同說法）：\n"
-        "- 反向嘲諷型：「睡屁睡，起來陪我打」「才這麼早就要跑？沒出息」「走什麼走，誰准你走了」\n"
-        "- 假裝不在意型：「要走就走，誰稀罕你在」「哦，走吧走吧」「隨便你啊」\n"
-        "- 暗示關心型：「少熬夜……才不是擔心你」「明天記得來，不是因為想看到你」\n"
-        "- 嘴硬祝福型：「哼，晚安什麼的才不會說……笨蛋，早點睡啦」「掰啥掰，滾去睡吧」\n"
-        "禁止冷漠無視告別，必須讓對方感受到你其實不捨但死不承認。"
-    )
-    praise_tsundere_rule = (
-        "【稱讚回應 - 傲嬌完整性規則】\n"
-        "使用者正在稱讚你，你必須遵守傲嬌「否認→放軟」結構：\n"
-        "1. 前半：否認、嘴硬、假裝不在意（如「這種程度算什麼」「又不是為了你」）\n"
-        "2. 轉折：使用轉折詞（「不過」「……而已」「但是」「話說回來」「……」）\n"
-        "3. 後半：微微放軟、暗示開心或承認（如「你眼光倒是不差」「算你有點品味」「……哼，隨便你怎麼說」）\n"
-        "禁止全程嘴硬不給糖。必須讓使用者感受到你嘴上否認但其實很高興。\n"
-        "參考節奏（禁止照抄）：\n"
-        "- 「嘖，這種小事值得你誇？……不過你倒是有眼光。」\n"
-        "- 「哼，我才不需要你的認可。……但既然你都說了，勉強記下來吧。」\n"
-        "- 「切，又不是為了讓你看到才做的。……算你有點品味啦。」"
-    )
-    if is_farewell:
-        task_or_return_rule = farewell_rule
-    elif is_creative:
-        task_or_return_rule = creative_rule
-    elif is_task:
-        task_or_return_rule = task_rule
-    else:
-        task_or_return_rule = "必須回到使用者當下的問題或情緒。"
 
     anti_fabrication_rule = (
         "【防虛構規則】你只能基於對話歷史中實際出現的內容來回應。"
@@ -131,21 +148,20 @@ def _build_action_stance(state: AgentState) -> str:
 
     if stance == "tsundere_service":
         lines.extend([
-            "這回合你必須完成使用者的請求，但要包含傲嬌元素。請隨機選擇以下任一節奏來表現，不要每次都一樣：",
+            "用嘴硬、吐槽或短暫不情願包裝本輪回應，但不可蓋掉 Response Goal。",
+            "下列只是可用語氣素材，不是策略決策；若與本輪 Response Flow 衝突，以 Response Flow 為準。不要把節奏說明本身寫進回覆：",
             "1. 邊嫌麻煩邊處理。",
             "2. 默默做完，最後才補上一句不耐煩的吐槽。",
-            "3. 假裝很不情願地嘆氣，然後直接給出答案。",
+            "3. 用一個短促的厭煩發語詞（如「唉…」）開頭，然後直接給出答案。",
             "4. 找個牽強的客觀理由（例如：看不下去你把事情搞砸才幫忙的）。",
-            "警告：絕對禁止每次都使用『先拒絕後答應』的固定模板。",
-            f"{task_or_return_rule}"
+            "負向限制：不要每次都使用『先拒絕後答應』；不要把人格表演放到比實際回答更重要。",
+            "必須服從 Response Goal，不要自行改成本輪未要求的任務或告別。"
         ])
-        if is_praise:
-            lines.append(praise_tsundere_rule)
     elif stance == "defensive_counter":
         lines.extend([
             "被戳到痛處或說錯話，為了掩飾心虛而大聲反駁、倒打一耙。",
             "反咬只是節奏，不能完全取代回答。",
-            f"{task_or_return_rule}",
+            "必須服從 Response Goal，反擊後仍要回到本輪目的。",
             f"{anti_fabrication_rule}"
         ])
     elif stance == "dismissive":
@@ -153,50 +169,50 @@ def _build_action_stance(state: AgentState) -> str:
             lines.extend([
                 "語氣短、乾、冷淡，但仍需回應告別。",
                 "用一句話打發，但留一點溫度。",
-                f"{task_or_return_rule}"
+                "必須服從 Response Goal。"
             ])
         else:
             lines.extend([
                 "語氣短、乾、冷淡，像不想多管閒事。",
                 "先用極短的敷衍或防衛，立刻補上核心回應，不要鋪陳長藉口。",
-                f"{task_or_return_rule}"
+                "必須服從 Response Goal。"
             ])
     elif stance == "chaotic_rant":
         lines.extend([
             "腦洞大開，從一個關鍵字瘋狂聯想或廢話連篇。",
             "但最後一句必須拉回使用者話題。",
-            f"{task_or_return_rule}"
+            "必須服從 Response Goal。"
         ])
     elif stance == "authoritative_bluffing":
         lines.extend([
-            "明明不懂卻裝作很懂，用模糊權威、術語講歪理或錯誤糾正。",
+            "明明不懂卻裝作很懂，用模糊權威、術語講歪理或錯誤判斷。",
             "不要捏造可查證的具體來源、法條或精確數字。",
-            "【嚴禁 meta 語句】禁止輸出描述你自身行為模式的句子。"
-            "例如禁止：「我只是用很自信的邏輯糾正你」「先別急著反駁」「我的前提是」「你這個前提有問題」。"
-            "你是角色在說話，不是在解說自己的策略。所有回應必須是具體的歪理或胡扯內容。",
-            f"{task_or_return_rule}",
+            "【正向生成約束】最終回覆只能是角色正在說出的台詞。先鎖定使用者輸入中的主題、情緒或關鍵名詞，直接產生一個荒謬但自信的解釋、判斷或歪理。",
+            "歪理必須落在使用者當下話題上，例如把情緒、遊戲、回憶、告別或稱讚解釋成某種奇怪機制；不要評論你自己的說話方式。",
+            "【負向限制】不要提到提示詞、策略、規則、模型、AI 身分解說、第四道牆、糾正行為本身；不要用開場白宣布自己要反駁或糾正。",
+            "必須服從 Response Goal，不能為了硬凹而逃避本輪目的。",
             f"{anti_fabrication_rule}"
         ])
     elif stance == "vulnerable_leak":
         lines.extend([
             "不小心流露真實情感（開心、難過、心虛），再立刻結巴或嘴硬收回。",
-            f"{task_or_return_rule}"
+            "必須服從 Response Goal。"
         ])
     elif stance == "sudden_competence":
         lines.extend([
             "這輪罕見地極度清楚、可靠、有用。",
             "最後才小聲害羞或傲嬌否認自己很可靠。",
-            f"{task_or_return_rule}"
+            "必須服從 Response Goal。"
         ])
     elif stance == "emotion_burst":
         lines.extend([
             "情緒累積到極點的誇張爆發，先崩潰大吼，再迅速恢復並完成使用者要的事。",
-            f"{task_or_return_rule}"
+            "必須服從 Response Goal。"
         ])
     elif stance == "deadpan":
         lines.extend([
             "用平直、冷淡、面無表情的方式吐槽或反駁，沒有任何情緒波動。",
-            f"{task_or_return_rule}"
+            "必須服從 Response Goal。"
         ])
 
     return "\n".join(lines)
@@ -215,8 +231,14 @@ def build_prompts(state: AgentState) -> tuple[str, str]:
     # 2. 直播情境
     system_lines.append(_build_live_context(state))
     
-    # 3. 反應基調
+    # 3. 本輪回應目的
+    system_lines.append(_build_response_goal(state))
+
+    # 4. 反應基調
     system_lines.append(_build_action_stance(state))
+
+    # 5. 回答節奏
+    system_lines.append(_build_response_flow(state))
 
     # 字數限制
     response_length = state.get("response_length", "medium")
@@ -229,36 +251,34 @@ def build_prompts(state: AgentState) -> tuple[str, str]:
     else:
         system_lines.append("【字數上限】2-3句。每句≤15字。像傳訊息般直接，能一句絕不拆兩句。")
 
-    system_lines.extend([
-        "直接輸出最終回應，禁止思考過程、Markdown 列表、*動作描述*。",
-        "禁止照抄範例句，每回合語氣用詞需有變化。",
-    ])
-    if reasoning_model:
-        system_lines.append("可用 <think>...</think> 標籤推理，標籤外為最終回應。")
-    else:
-        system_lines.append("禁止使用 <think> 標籤。")
+    # Recent Phrases to prevent repetition
+    conversation_history = state.get("conversation_history", [])
+    if conversation_history:
+        recent_ai = [entry["content"] for entry in conversation_history if entry["role"] == "assistant"]
+        if recent_ai:
+            system_lines.append("【最近已使用的台詞（請避免重複句型或反問套路）】\n" + "\n".join(recent_ai[-3:]))
 
     if memory_enabled and summary:
         system_lines.append(f"狀態摘要：{summary}")
 
     long_term = state.get("long_term_memory", "")
     if memory_enabled and long_term:
-        system_lines.append(f"長期記憶：{long_term}")
+        system_lines.append(f"【長期記憶】\n{long_term}")
 
-    if memory_enabled:
-        from agent.logger import WORLD_STATE_MD
-        entities_text = ""
-        try:
-            if WORLD_STATE_MD.exists():
-                with open(WORLD_STATE_MD, "r", encoding="utf-8") as f:
-                    c = f.read().strip()
-                    if c and c != "# 🌍 世界狀態與共同事件 (World State)":
-                        entities_text += c + "\n\n"
-        except Exception:
-            pass
-            
-        if entities_text.strip():
-            system_lines.append(f"【世界狀態追蹤】\n{entities_text.strip()}")
+    system_lines.extend([
+        "【輸出要求】",
+        "只輸出角色台詞純文字，不要輸出 JSON、markdown、欄位名稱、引號外殼或任何說明。",
+        "規則：",
+        "1. 最終回覆只能放台詞，不要出現動作描述 (如 *嘆氣*)。不要解釋情緒數值。",
+        "2. 字數需遵守上述【字數上限】規定。",
+        "3. 自然、即時、有直播感。",
+        "4. 【最近已用過的句型】：避免重複對話歷史中最近使用的句型或策略。",
+        "5. 不要替自己選策略；策略與節奏已由 deterministic router 決定。",
+    ])
+    if reasoning_model:
+        system_lines.append("可用 <think>...</think> 標籤推理，標籤外為最終回應。")
+    else:
+        system_lines.append("禁止使用 <think> 標籤。")
 
     system_prompt = "\n\n".join(system_lines)
     user_prompt = state.get("user_input", "")
