@@ -112,15 +112,25 @@ def build_acting_brief(resolved_emotion: dict) -> dict:
 
 
 def build_expression_projection(acting_brief: dict, resolved_emotion: dict) -> dict:
+    """Compile the performance brief into the small language-facing contract.
+
+    ``acting_brief`` is also consumed by performance integrations, so it may
+    contain inner-state and strategy details that must not become a second
+    response router.  Keep only expression cues here; response goal/flow still
+    owns what the reply must do and in which order.
+    """
     intensity = resolved_emotion.get("intensity", 0.5)
     if isinstance(intensity, bool) or not isinstance(intensity, (int, float)):
         intensity = 0.5
+    display = acting_brief.get("outer", "自然放鬆")
+    tone = acting_brief.get("tone", "自然")
     avoid = acting_brief.get("avoid", [])
     if not isinstance(avoid, list):
         avoid = []
     return {
         "style": str(resolved_emotion.get("style", "normal")),
-        "display": str(acting_brief.get("outer", "自然放鬆")),
+        "display": str(display),
+        "tone": str(tone),
         "intensity": max(0.0, min(1.0, float(intensity))),
         "avoid": [str(item) for item in avoid[:2]],
     }

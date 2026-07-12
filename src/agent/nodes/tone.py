@@ -83,10 +83,19 @@ def _merge_expression_projection(
         return hints
 
     display = projection.get("display", "")
+    tone = projection.get("tone", "")
     avoid = projection.get("avoid", [])
+    intensity = projection.get("intensity", 0.5)
     if not display:
         return hints
     projection_hint = f"外顯方式：{display}。"
+    if tone:
+        projection_hint += f"說話感覺：{tone}。"
+    if isinstance(intensity, (int, float)) and not isinstance(intensity, bool):
+        if intensity >= 0.8:
+            projection_hint += "表現程度：明顯，但不要失控。"
+        elif intensity <= 0.3:
+            projection_hint += "表現程度：淡淡帶過，不要過度演出。"
     if avoid:
         projection_hint += f"避免：{'、'.join(avoid)}。"
     return f"{hints} {projection_hint}"

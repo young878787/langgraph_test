@@ -141,6 +141,8 @@ flowchart LR
 
 **建議：** 第一個低風險實驗是建立 `acting_brief → expression_projection`，只留下 `display / intensity / avoid` 等語言真正需要的訊號，再合併到現有語氣層；`inner` 繼續供 trace / performance 使用，不另開一個平行 prompt section。
 
+**目前狀態（2026-07-12）：** 這個歷史缺口已完成第一、第二階段修正。`tone_performance.py` 會把 `acting_brief` 編譯成受控的 `expression_projection`，保留 `display`、`tone`、`intensity`、`avoid`，刻意排除 `inner` 與 `strategy`；`tone.py` 再把它合併進既有 `tone_hints`，因此會沿著原本的 `build_prompts()` 進入文字生成。`response_goal`、`response_flow` 仍是決策層，告別、界線、虛假稱讚與疑似諷刺等高優先情境可以抑制表演投影。這表示 4.3 所描述的「完全未投影」已不再是目前狀態，現在剩下的是持續校準投影強度與各情境的語氣品質。
+
 ### 4.4 沒有情緒 episode，只有每輪數值變化
 
 目前沒有保存以下資訊：
