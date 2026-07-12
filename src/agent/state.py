@@ -118,9 +118,12 @@ class AgentState(TypedDict, total=False):
     
     # VTuber Emotion System fields
     character_state: Dict[str, float]
+    character_state_diff: Dict[str, float]
+    state_transition_reason: dict
     event_analysis: dict
     resolved_emotion: dict
     acting_brief: dict
+    expression_projection: dict
     performance_output: dict
     
     stream_phase: StreamPhase
@@ -214,7 +217,10 @@ def initial_state(config: AgentConfig) -> AgentState:
             "boundary_pressure": 0.0
         },
         "event_analysis": {},
+        "character_state_diff": {},
+        "state_transition_reason": {},
         "resolved_emotion": {},
         "acting_brief": {},
+        "expression_projection": {},
         "performance_output": {}
     }

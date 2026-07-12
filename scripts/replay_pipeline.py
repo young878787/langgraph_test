@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import sys
 from pathlib import Path
@@ -13,13 +14,23 @@ if str(SRC_PATH) not in sys.path:
 
 from agent.config import AgentConfig
 from agent.llm.validators import fallback_response
-from agent.nodes.emotion import update_emotion
+from agent.nodes.emotion import should_apply_emotion_event, tick_emotion, update_emotion
 from agent.nodes.judge import judge_input
 from agent.nodes.response import generate_response
 from agent.nodes.tone import build_tone_strategy
 from agent.scenario_runner import CONTINUOUS_SCENARIO, SCENARIOS
 from agent.state import AgentState, initial_state
 from agent.task_status import build_task_status, should_include_task_status_for_response
+
+ARCHITECTURE_SCENARIO = [
+    "你今天看起來很可愛。",
+    "我不是隨口說的，是真的覺得你可愛。",
+    "哇，你剛才的回答可真是厲害呢。",
+    "可是你剛剛突然冷淡，我有點難過。",
+    "沒關係，我知道你不是故意的。",
+    "嗯",
+    "不要再拿我的外表開玩笑。",
+]
 
 
 def _preview(text: str, limit: int = 34) -> str:
@@ -34,6 +45,8 @@ def _scenario_inputs(name: str, text: list[str]) -> list[str]:
         return text
     if name == "simple":
         return list(SCENARIOS)
+    if name == "architecture":
+        return list(ARCHITECTURE_SCENARIO)
     return list(CONTINUOUS_SCENARIO)
 
 
@@ -69,7 +82,10 @@ def _run_turn(
     state["user_input"] = user_input
 
     state.update(judge_input(state, config))
-    state.update(update_emotion(state, config))
+    if should_apply_emotion_event(state):
+        state.update(update_emotion(state, config))
+    else:
+        state.update(tick_emotion(state, config))
     state.update(build_tone_strategy(state, config))
 
     task_status_in_prompt = should_include_task_status_for_response(state)
@@ -91,6 +107,15 @@ def _run_turn(
         "task_ctx": "yes" if task_status_in_prompt else "no",
         "tone": _preview(state.get("tone_hints", ""), 28),
         "reason": _preview(state.get("flow_reason", ""), 72),
+        "event": str(state.get("event_analysis", {}).get("event_type", "")),
+        "risk": f"{state.get('event_analysis', {}).get('risk', 0.0):.2f}",
+        "relation": str(state.get("event_analysis", {}).get("relationship_signal", "neutral")),
+        "emotion": f"{state.get('emotion', 0.0):+.3f}",
+        "diff": json.dumps(state.get("character_state_diff", {}), ensure_ascii=False, sort_keys=True),
+        "resolved": json.dumps(state.get("resolved_emotion", {}), ensure_ascii=False, sort_keys=True),
+        "projection": json.dumps(state.get("expression_projection", {}), ensure_ascii=False, sort_keys=True),
+        "transition": json.dumps(state.get("state_transition_reason", {}), ensure_ascii=False, sort_keys=True),
+        "warnings": json.dumps(state.get("event_analysis", {}).get("validation_warnings", []), ensure_ascii=False),
     }
 
     state.update(_minimal_writeback(state, response))
@@ -116,13 +141,24 @@ def _print_table(rows: Iterable[dict[str, str]]) -> None:
         print(" | ".join(value.ljust(width) for value, width in zip(values, widths)))
 
 
+def _print_verbose(rows: Iterable[dict[str, str]]) -> None:
+    for index, row in enumerate(rows, start=1):
+        print()
+        print(f"Turn {index}: {row['input']}")
+        print(f"  appraisal: event={row['event']} risk={row['risk']} relation={row['relation']} warnings={row['warnings']}")
+        print(f"  state: emotion={row['emotion']} diff={row['diff']}")
+        print(f"  transition: {row['transition']}")
+        print(f"  resolved: {row['resolved']}")
+        print(f"  projection: {row['projection']}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Replay langgraph_test decision pipeline through judge/emotion/tone."
     )
     parser.add_argument(
         "--scenario",
-        choices=("continuous", "simple"),
+        choices=("continuous", "simple", "architecture"),
         default="continuous",
         help="Built-in scenario to replay when --text is not provided.",
     )
@@ -134,6 +170,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--limit", type=int, default=0, help="Limit number of turns.")
     parser.add_argument("--seed", type=int, default=7, help="Random seed for routing choices.")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print appraisal, state diff, transition, resolved emotion, and expression projection.",
+    )
     parser.add_argument(
         "--with-response",
         action="store_true",
@@ -163,6 +204,8 @@ def main() -> None:
         rows.append(row)
 
     _print_table(rows)
+    if args.verbose:
+        _print_verbose(rows)
 
     print()
     print("Legend: task=yes means last_task_status would be injected into response prompt.")

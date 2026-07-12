@@ -109,3 +109,18 @@ def build_acting_brief(resolved_emotion: dict) -> dict:
             "allowed_patterns": ["分享想法", "順勢接話"],
             "avoid": ["過度激動", "不自然的轉折"]
         }
+
+
+def build_expression_projection(acting_brief: dict, resolved_emotion: dict) -> dict:
+    intensity = resolved_emotion.get("intensity", 0.5)
+    if isinstance(intensity, bool) or not isinstance(intensity, (int, float)):
+        intensity = 0.5
+    avoid = acting_brief.get("avoid", [])
+    if not isinstance(avoid, list):
+        avoid = []
+    return {
+        "style": str(resolved_emotion.get("style", "normal")),
+        "display": str(acting_brief.get("outer", "自然放鬆")),
+        "intensity": max(0.0, min(1.0, float(intensity))),
+        "avoid": [str(item) for item in avoid[:2]],
+    }

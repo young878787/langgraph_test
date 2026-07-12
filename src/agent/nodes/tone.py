@@ -4,7 +4,11 @@ from agent.config import AgentConfig
 from agent.state import AgentState
 from agent.nodes.tone_flow import decide_response_flow
 from agent.nodes.tone_goal import decide_response_goal
-from agent.nodes.tone_performance import build_acting_brief, resolve_vtuber_emotion
+from agent.nodes.tone_performance import (
+    build_acting_brief,
+    build_expression_projection,
+    resolve_vtuber_emotion,
+)
 
 
 def _decide_response_length(
@@ -62,6 +66,32 @@ def _build_tone_hints(
     return hints
 
 
+def _merge_expression_projection(
+    hints: str,
+    projection: dict,
+    state: AgentState,
+    response_goal: str,
+) -> str:
+    style = projection.get("style", "normal")
+    if style == "normal":
+        return hints
+    if state.get("fake_praise") or state.get("sarcasm_possible"):
+        return hints
+    if response_goal == "close_conversation":
+        return hints
+    if response_goal == "maintain_boundary" and style != "boundary":
+        return hints
+
+    display = projection.get("display", "")
+    avoid = projection.get("avoid", [])
+    if not display:
+        return hints
+    projection_hint = f"外顯方式：{display}。"
+    if avoid:
+        projection_hint += f"避免：{'、'.join(avoid)}。"
+    return f"{hints} {projection_hint}"
+
+
 def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
     stance = state.get("action_stance", "tsundere_service")
     emotion = state.get("emotion", 0.0)
@@ -73,6 +103,7 @@ def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
     character_state = state.get("character_state", {})
     resolved_emotion = resolve_vtuber_emotion(character_state)
     acting_brief = build_acting_brief(resolved_emotion)
+    expression_projection = build_expression_projection(acting_brief, resolved_emotion)
     response_length = _decide_response_length(
         stance,
         category,
@@ -80,6 +111,7 @@ def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
         resolved_emotion,
     )
     hints = _build_tone_hints(state, stance, emotion, response_goal)
+    hints = _merge_expression_projection(hints, expression_projection, state, response_goal)
 
     return {
         "tone_hints": hints,
@@ -88,5 +120,6 @@ def build_tone_strategy(state: AgentState, config: AgentConfig) -> AgentState:
         "response_flow": response_flow,
         "flow_reason": f"category={category}, goal={response_goal}, emotion={emotion:.2f}; {flow_reason}",
         "resolved_emotion": resolved_emotion,
-        "acting_brief": acting_brief
+        "acting_brief": acting_brief,
+        "expression_projection": expression_projection,
     }
