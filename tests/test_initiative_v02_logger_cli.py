@@ -57,6 +57,25 @@ class InitiativeV02LoggerTests(unittest.TestCase):
                         "name": "exactly_once", "expected": 1, "actual": 1,
                         "ok": True, "evidence": "receipt-1",
                     }],
+                    "initiative_flow": {
+                        "source_turn_id": "turn:u1",
+                        "source_message": "稍後請延續目前話題",
+                        "event_summary": "驗證 event-first commitment 與準時續接",
+                        "scheduled_at": "2026-07-13T10:05:00+08:00",
+                        "trigger": "DUE_EVALUATION",
+                        "action": "SEND_NOW",
+                        "reason_codes": ["event_first_commitment"],
+                        "status_before": "DUE",
+                        "status_after": "COMPLETED",
+                        "proactive_message": "驗證 event-first commitment 與準時續接",
+                        "reasoning": [
+                            "使用者留下後續承諾線索：稍後請延續目前話題",
+                            "建立 event-first commitment，來源 turn=turn:u1，預定喚醒=2026-07-13T10:05:00+08:00",
+                            "喚醒觸發=DUE_EVALUATION，事件狀態 DUE -> COMPLETED",
+                            "AI / System 決策=SEND_NOW，原因=event_first_commitment",
+                            "送出主動訊息：驗證 event-first commitment 與準時續接",
+                        ],
+                    },
                 }
                 logger.log_initiative_trace("run", "l0_01", trace)
                 logger.log_initiative_summary([{
@@ -65,6 +84,11 @@ class InitiativeV02LoggerTests(unittest.TestCase):
                 content = (log_dir / "prompts.md").read_text(encoding="utf-8")
 
         self.assertIn("### 步驟判斷表", content)
+        self.assertIn("### 主動流程摘要", content)
+        self.assertIn("| 來源訊息 | 稍後請延續目前話題 |", content)
+        self.assertIn("| 預定觸發 | 2026-07-13T10:05:00+08:00 |", content)
+        self.assertIn("#### AI 主動建立事件的思考流程", content)
+        self.assertIn("- 送出主動訊息：驗證 event-first commitment 與準時續接", content)
         self.assertIn("| 1 | 2026-07-13T10:05:00+08:00 | DUE_EVALUATION | DUE | 2 | SEND_NOW", content)
         self.assertIn("### 最終資源快照", content)
         self.assertIn("| exactly_once | 1 | 1 | PASS | receipt-1 |", content)
@@ -175,6 +199,9 @@ class InitiativeV02CliTests(unittest.TestCase):
         self.assertEqual(invoke.await_count, 1)
         self.assertIn("Replay mode: LIVE_API", output.getvalue())
         self.assertIn("real AI provider via AgentConfig / LLM_BACKEND", output.getvalue())
+        self.assertIn("觸發：2026-07-13T10:05:00+08:00 / - -> SEND_NOW", output.getvalue())
+        self.assertIn("來源訊息：稍後請延續目前話題", output.getvalue())
+        self.assertIn("AI 主動訊息：驗證 event-first commitment 與準時續接", output.getvalue())
 
     def test_async_main_prints_deterministic_mode(self) -> None:
         fixture = cli.load_scenarios(cli.FIXTURE_PATH)[0]
@@ -286,6 +313,19 @@ class InitiativeV02CliTests(unittest.TestCase):
             payload["trace"]["scenario"]["provider_backend"], "GoogleAIStudioProvider"
         )
         self.assertEqual(payload["trace"]["scenario"]["run_seed"], 8)
+        self.assertEqual(
+            payload["error_summary"],
+            "RuntimeError via GoogleAIStudioProvider: quota",
+        )
+
+    def test_terminal_error_summary_is_single_line_and_bounded(self) -> None:
+        summary = cli._terminal_error_summary(
+            RuntimeError("quota\n" + "x" * 300), "GoogleAIStudioProvider"
+        )
+
+        self.assertNotIn("\n", summary)
+        self.assertLessEqual(len(summary), 240 + len("RuntimeError via GoogleAIStudioProvider: "))
+        self.assertTrue(summary.endswith("..."))
 
 
 if __name__ == "__main__":

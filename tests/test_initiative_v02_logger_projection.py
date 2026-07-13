@@ -84,6 +84,11 @@ class InitiativeV02LoggerProjectionTests(unittest.TestCase):
         self.assertIn('"decision_id": "decision-1"', content)
         self.assertIn('"idempotency_key": "idem-1"', content)
         self.assertIn('"pending_wakeup_count": 0', content)
+        self.assertIn("展開 debug 細節：Gate、Audit、Provider attempts、Prompt 指紋與 raw output", content)
+        self.assertGreater(
+            content.index("### Provider attempts"),
+            content.index("展開 debug 細節"),
+        )
 
     def test_error_without_explicit_gate_gets_error_gate(self) -> None:
         content = self._render({

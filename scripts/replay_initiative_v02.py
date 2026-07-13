@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from dataclasses import asdict, is_dataclass
+from datetime import datetime, timedelta
 import importlib
 import inspect
 from pathlib import Path
@@ -169,6 +170,105 @@ def _scenario_metadata(
     }
 
 
+def _plain(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _first_step_value(step: Mapping[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = step.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def initiative_flow_payload(
+    fixture: ScenarioFixture,
+    raw: Mapping[str, Any],
+    traces: Iterable[Any],
+) -> dict[str, Any]:
+    """Project runner internals into the human-facing initiative story."""
+    steps = [step for step in traces if isinstance(step, Mapping)]
+    first_step = steps[0] if steps else {}
+    prelude = fixture.model.prelude[0] if fixture.model.prelude else None
+    conversation = list(fixture.model.context.conversation)
+    source_turn_id = None
+    source_message = None
+    if prelude is not None:
+        source_refs = prelude.data.get("source_turn_ids")
+        if isinstance(source_refs, (list, tuple)) and source_refs:
+            source_turn_id = str(source_refs[0])
+        source_message = _plain(prelude.data.get("input"))
+    if source_turn_id is None and fixture.model.context.provenance:
+        source_turn_id = fixture.model.context.provenance[0].ref
+    if source_message is None and conversation:
+        last_turn = conversation[-1]
+        if isinstance(last_turn, Mapping):
+            source_message = _plain(last_turn.get("content"))
+            source_turn_id = source_turn_id or _plain(last_turn.get("turn_id"))
+
+    scheduled_at = None
+    expires_at = None
+    if prelude is not None:
+        scheduled_at = _plain(prelude.data.get("schedule_at"))
+        expires_at = _plain(prelude.data.get("expires_at"))
+    if scheduled_at is None:
+        scheduled_at = _plain(_first_step_value(first_step, "logical_time"))
+    if scheduled_at is None:
+        try:
+            scheduled_at = (datetime.fromisoformat(fixture.model.clock_start) + timedelta(minutes=5)).isoformat()
+        except ValueError:
+            scheduled_at = None
+
+    trigger = _first_step_value(first_step, "trigger")
+    trigger_text = trigger.get("type") if isinstance(trigger, Mapping) else trigger
+    model_decision = first_step.get("model_decision") if isinstance(first_step.get("model_decision"), Mapping) else {}
+    system_decision = first_step.get("system_decision") if isinstance(first_step.get("system_decision"), Mapping) else {}
+    action = (
+        model_decision.get("parsed_action")
+        or system_decision.get("accepted_action")
+        or first_step.get("action")
+        or (raw.get("actions")[0] if isinstance(raw.get("actions"), (list, tuple)) and raw.get("actions") else None)
+    )
+    reason_codes = system_decision.get("reason_codes") or first_step.get("reason_codes") or []
+    if isinstance(reason_codes, str):
+        reason_codes = [reason_codes]
+    status_before = _first_step_value(first_step, "status_before")
+    status_after = _first_step_value(first_step, "status_after")
+    final_status = raw.get("event_status") or status_after
+    delivery_status = first_step.get("delivery_status")
+    proactive_message = _plain(raw.get("initiative_message")) or fixture.model.purpose
+
+    reasoning = [
+        f"使用者留下後續承諾線索：{source_message or fixture.model.purpose}",
+        f"建立 event-first commitment，來源 turn={source_turn_id or '-'}，預定喚醒={scheduled_at or '-'}",
+        f"喚醒觸發={trigger_text or '-'}，事件狀態 {status_before or '-'} -> {status_after or final_status or '-'}",
+        f"AI / System 決策={action or '-'}，原因={', '.join(str(item) for item in reason_codes) or '-'}",
+    ]
+    if delivery_status or raw.get("delivery_count"):
+        reasoning.append(f"送出主動訊息：{proactive_message}")
+
+    return {
+        "source_turn_id": source_turn_id,
+        "source_message": source_message,
+        "event_summary": fixture.model.purpose,
+        "scheduled_at": scheduled_at,
+        "expires_at": expires_at,
+        "trigger": trigger_text,
+        "action": action,
+        "reason_codes": list(reason_codes) if isinstance(reason_codes, (list, tuple)) else reason_codes,
+        "status_before": status_before,
+        "status_after": status_after,
+        "final_status": final_status,
+        "delivery_status": delivery_status,
+        "proactive_message": proactive_message,
+        "reasoning": reasoning,
+    }
+
+
 def result_payload(
     result: Any,
     fixture: ScenarioFixture,
@@ -235,6 +335,7 @@ def result_payload(
         "prompt_hashes": prompt_hashes,
         "planner_raw": [item.get("raw_output") for item in model_decisions]
         if model_decisions else None,
+        "initiative_flow": initiative_flow_payload(fixture, raw, traces),
         "gates": gates,
     }
     return {
@@ -289,6 +390,7 @@ def error_payload(
         "prompt_hashes": prompt_hashes,
         "planner_raw": [item.get("raw_output") for item in model_decisions]
         if model_decisions else None,
+        "initiative_flow": initiative_flow_payload(fixture, raw, traces),
         "errors": [message],
         "failure": {"primary_reason": "provider_error" if live_api else "runner_error"},
         "gates": [{"name": "scenario_execution", "ok": False, "summary": message}],
@@ -298,8 +400,38 @@ def error_payload(
         "status": "ERROR",
         "final_status": final_status,
         "delivery_count": raw.get("delivery_count"),
+        "error_summary": _terminal_error_summary(error, provider),
         "trace": trace,
     }
+
+
+def _terminal_error_summary(error: Exception, provider: str | None) -> str:
+    """Keep the actionable provider failure visible without dumping its full payload."""
+    detail = " ".join(str(error).split())
+    if len(detail) > 240:
+        detail = detail[:237].rstrip() + "..."
+    prefix = f"{type(error).__name__}"
+    if provider:
+        prefix += f" via {provider}"
+    return f"{prefix}: {detail}"
+
+
+def print_flow_summary(payload: Mapping[str, Any]) -> None:
+    trace = payload.get("trace") if isinstance(payload.get("trace"), Mapping) else {}
+    flow = trace.get("initiative_flow") if isinstance(trace.get("initiative_flow"), Mapping) else {}
+    if not flow:
+        return
+    print(
+        f"  觸發：{flow.get('scheduled_at') or '-'} / {flow.get('trigger') or '-'} "
+        f"-> {flow.get('action') or '-'}"
+    )
+    if flow.get("source_message"):
+        print(f"  來源訊息：{flow['source_message']}")
+    if flow.get("proactive_message") and payload.get("delivery_count"):
+        print(f"  AI 主動訊息：{flow['proactive_message']}")
+    reasons = flow.get("reasoning")
+    if isinstance(reasons, (list, tuple)) and reasons:
+        print(f"  思考流程：{reasons[-1]}")
 
 
 async def async_main(args: argparse.Namespace) -> int:
@@ -360,6 +492,9 @@ async def async_main(args: argparse.Namespace) -> int:
                 f"[{payload['status']}] {fixture.model.scenario_id} "
                 f"final={payload['final_status']} delivery={payload['delivery_count']}"
             )
+            print_flow_summary(payload)
+            if payload["status"] == "ERROR":
+                print(f"  reason={payload['error_summary']}", file=sys.stderr)
 
     if any(item["status"] == "ERROR" for item in payloads):
         return 2

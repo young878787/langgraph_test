@@ -591,6 +591,11 @@ def log_initiative_trace(
     def first_nonempty(*values: Any, default: str = "unknown") -> str:
         return str(next((value for value in values if value not in (None, "")), default))
 
+    def bullet_list(values: Any) -> str:
+        if not isinstance(values, (list, tuple)) or not values:
+            return "- 尚無流程摘要。"
+        return "\n".join(f"- {cell(value)}" for value in values)
+
     first_model_decision = next(
         (
             step.get("model_decision") for step in steps
@@ -726,6 +731,24 @@ def log_initiative_trace(
     proposal = data.get("event_proposal", data.get("proposal"))
     commitment = data.get("commitment", data.get("event_first_commitment"))
     soft_quality = data.get("soft_quality", data.get("soft_scores", {}))
+    flow = data.get("initiative_flow") if isinstance(data.get("initiative_flow"), Mapping) else {}
+    if flow:
+        flow_rows = [
+            ("來源 turn", flow.get("source_turn_id")),
+            ("來源訊息", flow.get("source_message")),
+            ("Event 摘要", flow.get("event_summary")),
+            ("預定觸發", flow.get("scheduled_at")),
+            ("觸發類型", flow.get("trigger")),
+            ("AI / System 決策", flow.get("action")),
+            ("原因碼", flow.get("reason_codes")),
+            ("狀態變化", f"{flow.get('status_before') or '-'} -> {flow.get('status_after') or flow.get('final_status') or '-'}"),
+            ("AI 主動訊息", flow.get("proactive_message")),
+        ]
+        flow_table = "\n".join(f"| {cell(label)} | {cell(value)} |" for label, value in flow_rows)
+        flow_reasoning = bullet_list(flow.get("reasoning"))
+    else:
+        flow_table = "| - | 尚無 initiative_flow；請查看步驟判斷表。 |"
+        flow_reasoning = "- 尚無流程摘要。"
 
     key_outputs = []
     if plan is not None:
@@ -737,6 +760,11 @@ def log_initiative_trace(
     if evaluator_raw is not None:
         key_outputs.append("#### Evaluator\n\n" + json_block(evaluator_raw))
     key_output_text = "\n\n".join(key_outputs) or "尚無輸出。"
+    key_output_section = f"""
+### 關鍵輸出
+
+{key_output_text}
+""" if key_outputs else ""
 
     prompt_sections = []
     for label, key in (("Planner", "planner_prompt"), ("Generator", "generator_prompt"), ("Evaluator", "evaluator_prompt")):
@@ -752,9 +780,34 @@ def log_initiative_trace(
 > **Provider / Model**: `{provider}` / `{model}`
 > **單情境完整耗時**: {elapsed_text}
 
+### 主動流程摘要
+
+| 項目 | 內容 |
+|---|---|
+{flow_table}
+
+#### AI 主動建立事件的思考流程
+
+{flow_reasoning}
+
 ### 問題摘要
 
 {issue_summary}
+
+### 步驟判斷表
+
+| Step | Logical time | Trigger | Before | Ver. | AI / System action | Reason | After | Ver. | DecisionRecord | Delivery | Idempotency / Content hash | Gate |
+|---:|---|---|---|---:|---|---|---|---:|---|---|---|---|
+{step_table}
+
+### 最終資源快照
+
+{json_block(final_snapshot)}
+
+{key_output_section}
+
+<details>
+<summary>展開 debug 細節：Gate、Audit、Provider attempts、Prompt 指紋與 raw output</summary>
 
 ### Gate 結果
 
@@ -772,25 +825,9 @@ def log_initiative_trace(
 
 {json_block(commitment) if commitment is not None else "尚無 commitment 紀錄。"}
 
-### 步驟判斷表
-
-| Step | Logical time | Trigger | Before | Ver. | AI / System action | Reason | After | Ver. | DecisionRecord | Delivery | Idempotency / Content hash | Gate |
-|---:|---|---|---|---:|---|---|---|---:|---|---|---|---|
-{step_table}
-
-### Provider attempts
-
-| Step | Attempt | Provider | Model | Prompt hash | Validation / Error |
-|---:|---:|---|---|---|---|
-{attempt_table}
-
 ### Decision / Delivery audit
 
 {audit_detail_text}
-
-### 最終資源快照
-
-{json_block(final_snapshot)}
 
 ### Hard constraint 判定
 
@@ -802,16 +839,15 @@ def log_initiative_trace(
 
 {json_block(soft_quality)}
 
-### 關鍵輸出
+### Provider attempts
 
-{key_output_text}
+| Step | Attempt | Provider | Model | Prompt hash | Validation / Error |
+|---:|---:|---|---|---|---|
+{attempt_table}
 
 ### Prompt 指紋
 
 {json_block(prompt_hashes)}
-
-<details>
-<summary>展開完整 AI Prompts 與 Planner raw output</summary>
 
 {prompts_text}
 
