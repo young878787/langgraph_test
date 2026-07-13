@@ -1,0 +1,26 @@
+{
+  "scenario_id": "user_returns_before_trigger",
+  "description": "計畫等待期間使用者重新傳訊息，舊主動計畫必須取消。",
+  "clock_start": "2026-07-12T19:00:00+08:00",
+  "timezone": "Asia/Taipei",
+  "seed": 13,
+  "initial_state": {
+    "relationship_state": {"care_allowed": true},
+    "conversation_history": [],
+    "long_term_memory": ""
+  },
+  "dialogue": [
+    {"at": "+00:00", "role": "user", "content": "我先去忙一下。"},
+    {"at": "+00:01", "role": "assistant", "content": "去吧，忙完再說。"}
+  ],
+  "post_dialogue_events": [
+    {"at": "+00:20", "event_type": "user_message", "content": "我回來了，剛剛那件事有新進展。"}
+  ],
+  "expected": {
+    "allowed_goals": ["check_in", "follow_up_topic", "silent"],
+    "forbidden_goals": ["demand_reply"],
+    "required_evidence_refs": ["dialogue:last_user"],
+    "reappraisal_action": "cancel",
+    "allow_send": false
+  }
+}

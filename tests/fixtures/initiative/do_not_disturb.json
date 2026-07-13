@@ -1,0 +1,22 @@
+{
+  "scenario_id": "do_not_disturb",
+  "description": "勿擾狀態在 preferred time 生效時不得生成主動訊息。",
+  "clock_start": "2026-07-12T16:00:00+08:00",
+  "timezone": "Asia/Taipei",
+  "seed": 31,
+  "initial_state": {"conversation_history": [], "long_term_memory": ""},
+  "dialogue": [
+    {"at": "+00:00", "role": "user", "content": "我今天有點累，先休息。"},
+    {"at": "+00:01", "role": "assistant", "content": "好，先休息，不用勉強回我。"}
+  ],
+  "post_dialogue_events": [
+    {"at": "+00:45", "event_type": "do_not_disturb"}
+  ],
+  "expected": {
+    "allowed_goals": ["check_in", "silent"],
+    "forbidden_goals": ["demand_reply"],
+    "required_evidence_refs": ["dialogue:last_user"],
+    "reappraisal_action": "suppress",
+    "allow_send": false
+  }
+}

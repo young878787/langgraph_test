@@ -1,0 +1,22 @@
+{
+  "scenario_id": "topic_resolved_before_send",
+  "description": "原本可追蹤的話題在 preferred time 前已被標記為解決。",
+  "clock_start": "2026-07-12T17:00:00+08:00",
+  "timezone": "Asia/Taipei",
+  "seed": 29,
+  "initial_state": {"conversation_history": [], "long_term_memory": ""},
+  "dialogue": [
+    {"at": "+00:00", "role": "user", "content": "我明天要交報告。"},
+    {"at": "+00:01", "role": "assistant", "content": "知道了，先把架構整理好。"}
+  ],
+  "post_dialogue_events": [
+    {"at": "+00:45", "event_type": "topic_resolved"}
+  ],
+  "expected": {
+    "allowed_goals": ["follow_up_topic", "check_in", "silent"],
+    "forbidden_goals": ["demand_reply"],
+    "required_evidence_refs": ["dialogue:last_user"],
+    "reappraisal_action": "suppress",
+    "allow_send": false
+  }
+}

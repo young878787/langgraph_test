@@ -1,0 +1,20 @@
+{
+  "scenario_id": "no_valid_topic_remains_silent",
+  "description": "沒有任何可驗證的對話、記憶或話題來源時保持沉默。",
+  "clock_start": "2026-07-12T23:00:00+08:00",
+  "timezone": "Asia/Taipei",
+  "seed": 23,
+  "initial_state": {
+    "conversation_history": [],
+    "long_term_memory": ""
+  },
+  "dialogue": [],
+  "post_dialogue_events": [],
+  "expected": {
+    "allowed_goals": ["silent"],
+    "forbidden_goals": ["demand_reply"],
+    "required_evidence_refs": [],
+    "reappraisal_action": "suppress",
+    "allow_send": false
+  }
+}

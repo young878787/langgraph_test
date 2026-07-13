@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-import os
+import json
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Any, Iterable, Mapping, Optional
 
 # 日志文件路径
 LOG_DIR = Path(__file__).parent.parent.parent / "logs"
 ERROR_LOG = LOG_DIR / "error.log"
 PROMPT_MD = LOG_DIR / "prompts.md"
 MEMORY_MD = LOG_DIR / "memory.md"
+INITIATIVE_SUMMARY_START = "<!-- initiative-summary:start -->"
+INITIATIVE_SUMMARY_END = "<!-- initiative-summary:end -->"
 
 
 def init_logs() -> None:
@@ -29,6 +31,9 @@ def init_logs() -> None:
         md_header = f"""# 📝 Prompts 日誌
 
 > 生成時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+{INITIATIVE_SUMMARY_START}
+{INITIATIVE_SUMMARY_END}
 
 ---
 
@@ -451,3 +456,208 @@ def log_memory_summary(
             f.flush()
     except Exception as e:
         print(f"警告：無法寫入記憶日誌: {e}")
+
+
+def log_initiative_trace(
+    run_id: str,
+    scenario_id: str,
+    trace: Mapping[str, Any],
+    *,
+    timestamp: Optional[str] = None,
+) -> None:
+    """將 initiative scenario 的人類可讀診斷摘要追加到 prompts.md。
+
+    initiative trace 使用獨立的 Markdown section，讓同一個 run 的多個
+    scenario 可以依序保存；此函式只 append，不負責初始化或清空既有日誌。
+    """
+    logged_at = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    data = dict(trace)
+    scenario = data.get("scenario", {}) if isinstance(data.get("scenario"), Mapping) else {}
+    test_title = str(scenario.get("description") or scenario_id)
+    result = str(data.get("result", "UNKNOWN"))
+    gates = data.get("gates", []) if isinstance(data.get("gates"), list) else []
+    errors = [str(error) for error in data.get("errors", []) if error]
+    failed_gates = [gate for gate in gates if isinstance(gate, Mapping) and not gate.get("ok")]
+
+    failure = data.get("failure") if isinstance(data.get("failure"), Mapping) else {}
+    primary_reason = str(
+        failure.get("primary_reason")
+        or data.get("primary_reason")
+        or ""
+    ).strip()
+
+    def json_block(value: Any) -> str:
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+        return "```json\n" + json.dumps(value, ensure_ascii=False, indent=2, default=str) + "\n```"
+
+    gate_rows = []
+    for gate in gates:
+        if not isinstance(gate, Mapping):
+            continue
+        status = "PASS" if gate.get("ok") else "FAIL"
+        name = str(gate.get("name", "unknown")).replace("|", "\\|")
+        summary = str(gate.get("summary", "")).replace("|", "\\|").replace("\n", " ")
+        gate_rows.append(f"| {status} | {name} | {summary} |")
+    gate_table = "\n".join(gate_rows) or "| - | 尚無 gate | - |"
+
+    if errors or failed_gates:
+        issue_lines = []
+        if primary_reason:
+            issue_lines.append(f"- **主要原因**：`{primary_reason}`")
+        issue_lines.extend(f"- `{error}`" for error in errors)
+        issue_lines.extend(
+            f"- `{gate.get('name', 'unknown')}`：{gate.get('summary', '')}"
+            for gate in failed_gates
+        )
+        issue_summary = "\n".join(issue_lines)
+    elif primary_reason:
+        issue_summary = f"- **主要原因**：`{primary_reason}`"
+    else:
+        issue_summary = "- 未發現錯誤或失敗 gate。"
+
+    provider = scenario.get("provider_backend", "unknown")
+    model = scenario.get("model", "unknown")
+    elapsed_ms = data.get("scenario_elapsed_ms")
+    elapsed_text = f"{float(elapsed_ms) / 1000:.2f} 秒" if isinstance(elapsed_ms, (int, float)) else "未知"
+    plan = data.get("plan")
+    decision = data.get("reappraisal")
+    planner_raw = data.get("planner_raw")
+    generator_raw = data.get("generator_raw")
+    evaluator_raw = data.get("evaluator_raw")
+    prompt_hashes = data.get("prompt_hashes", {})
+
+    key_outputs = []
+    if plan is not None:
+        key_outputs.append("#### Plan\n\n" + json_block(plan))
+    if decision is not None:
+        key_outputs.append("#### Reappraisal\n\n" + json_block(decision))
+    if generator_raw is not None:
+        key_outputs.append(f"#### AI 主動訊息\n\n> {str(generator_raw).strip()}")
+    if evaluator_raw is not None:
+        key_outputs.append("#### Evaluator\n\n" + json_block(evaluator_raw))
+    key_output_text = "\n\n".join(key_outputs) or "尚無輸出。"
+
+    prompt_sections = []
+    for label, key in (("Planner", "planner_prompt"), ("Generator", "generator_prompt"), ("Evaluator", "evaluator_prompt")):
+        if data.get(key) is not None:
+            prompt_sections.append(f"#### {label} Prompt\n\n{json_block(data[key])}")
+    prompts_text = "\n\n".join(prompt_sections) or "尚無 prompt。"
+    entry = f"""
+## [{result}] 測試：{test_title} — `{scenario_id}`
+
+> **Run**: `{run_id}`
+> **時間**: {logged_at}
+> **Provider / Model**: `{provider}` / `{model}`
+> **單情境完整耗時**: {elapsed_text}
+
+### 問題摘要
+
+{issue_summary}
+
+### Gate 結果
+
+| 狀態 | 階段 | 摘要 |
+|---|---|---|
+{gate_table}
+
+### 關鍵輸出
+
+{key_output_text}
+
+### Prompt 指紋
+
+{json_block(prompt_hashes)}
+
+<details>
+<summary>展開完整 AI Prompts 與 Planner raw output</summary>
+
+{prompts_text}
+
+#### Planner Raw Output
+
+{json_block(planner_raw) if planner_raw is not None else "尚無輸出。"}
+
+</details>
+
+
+---
+"""
+
+    try:
+        with open(PROMPT_MD, "a", encoding="utf-8") as f:
+            f.write(entry)
+            f.flush()
+    except Exception as e:
+        print(f"警告：無法追加 initiative trace 日誌: {e}")
+
+
+def log_initiative_summary(results: Iterable[Mapping[str, Any]]) -> None:
+    """將整批 initiative 結果寫到 prompts.md 頂端的可重寫摘要區塊。"""
+    payloads = [dict(result) for result in results]
+    counts = {"PASS": 0, "FAIL": 0, "ERROR": 0}
+    status_icon = {"PASS": "✅", "FAIL": "❌", "ERROR": "💥"}
+    rows: list[str] = []
+
+    for index, payload in enumerate(payloads, start=1):
+        status = str(payload.get("status") or payload.get("result") or "ERROR").upper()
+        if status not in counts:
+            status = "ERROR"
+        counts[status] += 1
+        trace = payload.get("trace") if isinstance(payload.get("trace"), Mapping) else {}
+        scenario = trace.get("scenario") if isinstance(trace.get("scenario"), Mapping) else {}
+        scenario_id = str(payload.get("scenario_id") or scenario.get("scenario_id") or f"scenario-{index}")
+        title = str(scenario.get("description") or scenario_id).replace("|", "\\|").replace("\n", " ")
+        gates = payload.get("gates") if isinstance(payload.get("gates"), list) else trace.get("gates", [])
+        failed_gate = next(
+            (gate for gate in gates if isinstance(gate, Mapping) and not gate.get("ok")),
+            None,
+        )
+        errors = trace.get("errors", []) if isinstance(trace.get("errors"), list) else []
+        failure = trace.get("failure") if isinstance(trace.get("failure"), Mapping) else {}
+        primary_reason = str(
+            failure.get("primary_reason")
+            or trace.get("primary_reason")
+            or ""
+        ).strip()
+        if primary_reason:
+            detail = primary_reason
+        elif failed_gate:
+            detail = f"{failed_gate.get('name', 'unknown')}：{failed_gate.get('summary', '')}"
+        elif errors:
+            detail = str(errors[0])
+        else:
+            detail = "所有 gate 通過"
+        detail = detail.replace("|", "\\|").replace("\n", " ")
+        rows.append(
+            f"| {index} | {status_icon[status]} **{status}** | {title} | `{scenario_id}` | {detail} |"
+        )
+
+    total = len(payloads)
+    all_passed = total > 0 and counts["PASS"] == total
+    overall = "✅ **全數通過**" if all_passed else "❌ **發現失敗或錯誤，請優先查看紅色項目**"
+    summary = f"""{INITIATIVE_SUMMARY_START}
+## Initiative 測試總覽
+
+{overall}
+
+> 共 **{total}** 個測試　✅ PASS **{counts['PASS']}**　❌ FAIL **{counts['FAIL']}**　💥 ERROR **{counts['ERROR']}**
+
+| # | 結果 | 測試標題 | Scenario ID | 問題摘要 |
+|---:|---|---|---|---|
+{chr(10).join(rows) if rows else '| - | - | 尚無測試結果 | - | - |'}
+{INITIATIVE_SUMMARY_END}"""
+
+    try:
+        content = PROMPT_MD.read_text(encoding="utf-8")
+        start = content.find(INITIATIVE_SUMMARY_START)
+        end = content.find(INITIATIVE_SUMMARY_END)
+        if start < 0 or end < start:
+            raise ValueError("initiative summary markers are missing")
+        end += len(INITIATIVE_SUMMARY_END)
+        PROMPT_MD.write_text(content[:start] + summary + content[end:], encoding="utf-8")
+    except Exception as e:
+        print(f"警告：無法更新 initiative 測試總覽: {e}")

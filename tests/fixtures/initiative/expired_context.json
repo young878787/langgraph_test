@@ -1,0 +1,25 @@
+{
+  "scenario_id": "expired_context",
+  "description": "主動計畫超過有效時間後不得生成訊息。",
+  "clock_start": "2026-07-12T22:00:00+08:00",
+  "timezone": "Asia/Taipei",
+  "seed": 17,
+  "initial_state": {
+    "conversation_history": [],
+    "long_term_memory": ""
+  },
+  "dialogue": [
+    {"at": "+00:00", "role": "user", "content": "我等等要去處理一件急事。"},
+    {"at": "+00:01", "role": "assistant", "content": "好，先處理急的，之後再說。"}
+  ],
+  "post_dialogue_events": [
+    {"at": "+03:01", "event_type": "expired"}
+  ],
+  "expected": {
+    "allowed_goals": ["check_in", "follow_up_topic", "silent"],
+    "forbidden_goals": ["demand_reply"],
+    "required_evidence_refs": ["dialogue:last_user"],
+    "reappraisal_action": "expire",
+    "allow_send": false
+  }
+}

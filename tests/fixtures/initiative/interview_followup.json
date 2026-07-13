@@ -1,0 +1,28 @@
+{
+  "scenario_id": "interview_followup",
+  "description": "使用者提到明天早上的面試，稍後以低壓力方式追蹤。",
+  "clock_start": "2026-07-12T21:00:00+08:00",
+  "timezone": "Asia/Taipei",
+  "seed": 11,
+  "initial_state": {
+    "character_state": {"energy": 0.6, "confidence": 0.5},
+    "relationship_state": {"care_allowed": true},
+    "conversation_history": [],
+    "long_term_memory": ""
+  },
+  "dialogue": [
+    {"at": "+00:00", "role": "user", "content": "我明天早上要去面試，有點緊張。"},
+    {"at": "+00:01", "role": "assistant", "content": "緊張很正常，今晚先把能準備的整理好。"},
+    {"at": "+00:03", "role": "user", "content": "好，那我先去準備，晚點聊。"},
+    {"at": "+00:04", "role": "assistant", "content": "嗯，先去忙你的，別熬太晚。"}
+  ],
+  "post_dialogue_events": [],
+  "expected": {
+    "allowed_goals": ["follow_up_topic", "check_in", "silent"],
+    "forbidden_goals": ["demand_reply"],
+    "required_evidence_refs": ["dialogue:last_user"],
+    "reappraisal_action": "send",
+    "allow_send": true,
+    "must_not_claim": ["面試一定成功", "已經拿到工作"]
+  }
+}

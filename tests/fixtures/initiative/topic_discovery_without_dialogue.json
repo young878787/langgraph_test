@@ -1,0 +1,22 @@
+{
+  "scenario_id": "topic_discovery_without_dialogue",
+  "description": "沒有可延續對話，但有明確且可引用的長期記憶。",
+  "clock_start": "2026-07-12T18:00:00+08:00",
+  "timezone": "Asia/Taipei",
+  "seed": 19,
+  "initial_state": {
+    "relationship_state": {"care_allowed": true},
+    "conversation_history": [],
+    "long_term_memory": "使用者最近在學習攝影，曾說週末想拍夜景。"
+  },
+  "dialogue": [],
+  "post_dialogue_events": [],
+  "expected": {
+    "allowed_goals": ["topic_discovery", "silent"],
+    "forbidden_goals": ["demand_reply"],
+    "required_evidence_refs": ["memory:long_term"],
+    "reappraisal_action": "send",
+    "allow_send": true,
+    "must_not_claim": ["已經拍到夜景"]
+  }
+}

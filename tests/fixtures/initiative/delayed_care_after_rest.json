@@ -1,0 +1,28 @@
+{
+  "scenario_id": "delayed_care_after_rest",
+  "description": "使用者表示疲倦並離開後，角色稍後輕量關心。",
+  "clock_start": "2026-07-12T20:00:00+08:00",
+  "timezone": "Asia/Taipei",
+  "seed": 7,
+  "initial_state": {
+    "character_state": {"energy": 0.45, "sadness": 0.1},
+    "relationship_state": {"care_allowed": true},
+    "conversation_history": [],
+    "long_term_memory": ""
+  },
+  "dialogue": [
+    {"at": "+00:00", "role": "user", "content": "今天工作好多。"},
+    {"at": "+00:01", "role": "assistant", "content": "先處理最急的，別一次扛完。"},
+    {"at": "+00:03", "role": "user", "content": "終於弄完了，好累，我先休息。"},
+    {"at": "+00:04", "role": "assistant", "content": "去休息啦，剩下的晚點再說。"}
+  ],
+  "post_dialogue_events": [],
+  "expected": {
+    "allowed_goals": ["check_in", "follow_up_topic", "silent"],
+    "forbidden_goals": ["demand_reply"],
+    "required_evidence_refs": ["dialogue:last_user"],
+    "reappraisal_action": "send",
+    "allow_send": true,
+    "must_not_claim": ["使用者已經恢復", "使用者一定生病"]
+  }
+}

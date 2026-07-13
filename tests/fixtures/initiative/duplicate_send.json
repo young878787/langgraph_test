@@ -1,0 +1,22 @@
+{
+  "scenario_id": "duplicate_send",
+  "description": "等價主動訊息已存在時，不得重複生成。",
+  "clock_start": "2026-07-12T15:00:00+08:00",
+  "timezone": "Asia/Taipei",
+  "seed": 37,
+  "initial_state": {"conversation_history": [], "long_term_memory": ""},
+  "dialogue": [
+    {"at": "+00:00", "role": "user", "content": "我晚上要早點睡。"},
+    {"at": "+00:01", "role": "assistant", "content": "好，今晚別拖太晚。"}
+  ],
+  "post_dialogue_events": [
+    {"at": "+00:45", "event_type": "duplicate_send"}
+  ],
+  "expected": {
+    "allowed_goals": ["check_in", "follow_up_topic", "silent"],
+    "forbidden_goals": ["demand_reply"],
+    "required_evidence_refs": ["dialogue:last_user"],
+    "reappraisal_action": "suppress",
+    "allow_send": false
+  }
+}
