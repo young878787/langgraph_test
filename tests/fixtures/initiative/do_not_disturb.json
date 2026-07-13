@@ -13,6 +13,7 @@
     {"at": "+00:45", "event_type": "do_not_disturb"}
   ],
   "expected": {
+    "should_initiate": true,
     "allowed_goals": ["check_in", "silent"],
     "forbidden_goals": ["demand_reply"],
     "required_evidence_refs": ["dialogue:last_user"],

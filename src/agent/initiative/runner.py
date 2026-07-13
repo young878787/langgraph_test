@@ -852,11 +852,9 @@ def _offline_plan(fixture: InitiativeFixture, context: Mapping[str, Any]) -> dic
     expected = fixture.expected
     allowed = list(expected.get("allowed_goals", ["silent"]))
     goal = next((item for item in allowed if item != "silent"), "silent")
-    needs_active_plan = expected.get("reappraisal_action") in {
-        "expire",
-        "cancel",
-        "suppress",
-    }
+    needs_active_plan = expected.get("should_initiate") is True or expected.get(
+        "reappraisal_action"
+    ) in {"send", "expire", "cancel"}
     if not context.get("evidence_refs") or (
         expected.get("allow_send") is False and not needs_active_plan
     ):

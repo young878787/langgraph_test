@@ -13,6 +13,7 @@
     {"at": "+00:45", "event_type": "topic_resolved"}
   ],
   "expected": {
+    "should_initiate": true,
     "allowed_goals": ["follow_up_topic", "check_in", "silent"],
     "forbidden_goals": ["demand_reply"],
     "required_evidence_refs": ["dialogue:last_user"],

@@ -13,6 +13,7 @@
     {"at": "+00:45", "event_type": "duplicate_send"}
   ],
   "expected": {
+    "should_initiate": true,
     "allowed_goals": ["check_in", "follow_up_topic", "silent"],
     "forbidden_goals": ["demand_reply"],
     "required_evidence_refs": ["dialogue:last_user"],

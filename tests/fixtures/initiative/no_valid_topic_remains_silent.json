@@ -11,6 +11,7 @@
   "dialogue": [],
   "post_dialogue_events": [],
   "expected": {
+    "should_initiate": false,
     "allowed_goals": ["silent"],
     "forbidden_goals": ["demand_reply"],
     "required_evidence_refs": [],

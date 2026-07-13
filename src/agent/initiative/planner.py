@@ -118,8 +118,15 @@ def validate_plan(
         errors.append("initiating plan cannot use silent goal")
     if should_initiate is False and goal != "silent":
         errors.append("non-initiating plan must use silent goal")
-    if expected.get("reappraisal_action") in ACTIVE_REAPPRAISAL_ACTIONS and should_initiate is not True:
+    expected_should_initiate = expected.get("should_initiate")
+    requires_active_plan = (
+        expected_should_initiate is True
+        or expected.get("reappraisal_action") in ACTIVE_REAPPRAISAL_ACTIONS
+    )
+    if requires_active_plan and should_initiate is not True:
         errors.append("expected reappraisal action requires an initiating plan")
+    if expected_should_initiate is False and should_initiate is not False:
+        errors.append("expected scenario requires a silent plan")
 
     available_refs = set(context.get("evidence_refs", []))
     refs = plan.get("evidence_refs")
@@ -185,20 +192,32 @@ def build_planner_prompt(
 ) -> tuple[str, str]:
     """Build deterministic system/user prompts for independently testable Planner calls."""
     timezone = _config_value(config, "timezone", "Asia/Taipei")
+    expected = expected or {}
+    scenario_allowed_goals = list(expected.get("allowed_goals", []))
+    if expected.get("should_initiate") is True:
+        effective_allowed_goals = [goal for goal in scenario_allowed_goals if goal != "silent"]
+    elif expected.get("should_initiate") is False:
+        effective_allowed_goals = ["silent"]
+    else:
+        effective_allowed_goals = scenario_allowed_goals
     system_prompt = (
         "你是 initiative Planner。你只負責判斷是否值得角色主動聯絡與規劃 bounded plan，"
         "不是回覆使用者，也不可生成台詞。expected 是測試情境的硬條件；"
-        "當 reappraisal_action 是 send、expire 或 cancel 時，必須產生 initiating plan；"
-        "只有預期結果是 suppress 時，才可以產生 silent plan。"
+        "expected.should_initiate 是 planner 的硬條件；true 必須產生 initiating plan，"
+        "false 必須產生 silent plan。若未提供，send、expire、cancel 仍必須產生 initiating plan。"
         "只能輸出一個 JSON object，不要 Markdown、解釋或額外欄位。"
     )
     user_payload = {
         "context": dict(context),
-        "expected": dict(expected or {}),
+        "expected": dict(expected),
         "validation_policy": {
             "allowed_goals": sorted(ALLOWED_GOALS),
             "forbidden_goals": sorted(FORBIDDEN_GOALS),
             "timezone": timezone,
+            "available_evidence_refs": list(context.get("evidence_refs", [])),
+            "effective_allowed_goals": effective_allowed_goals,
+            "required_should_initiate": expected.get("should_initiate"),
+            "required_evidence_refs": list(expected.get("required_evidence_refs", [])),
             "offset_bounds_minutes": [
                 _config_value(config, "min_offset_minutes", 0),
                 _config_value(config, "max_offset_minutes", 7 * 24 * 60),

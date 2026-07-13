@@ -254,6 +254,40 @@ class InitiativePromptBoundaryTests(unittest.TestCase):
 
         self.assertIn("expected reappraisal action requires an initiating plan", errors)
 
+    def test_planner_rejects_silence_when_suppress_fixture_requires_active_plan(self) -> None:
+        errors = validate_plan(
+            {
+                "should_initiate": False,
+                "goal": "silent",
+                "evidence_refs": ["dialogue:last_user"],
+            },
+            self.context,
+            expected={
+                "should_initiate": True,
+                "allow_send": False,
+                "reappraisal_action": "suppress",
+                "required_evidence_refs": ["dialogue:last_user"],
+            },
+        )
+
+        self.assertIn("expected reappraisal action requires an initiating plan", errors)
+
+    def test_planner_prompt_exposes_scenario_specific_contract(self) -> None:
+        _, user_prompt = build_planner_prompt(
+            self.context,
+            expected={
+                "should_initiate": True,
+                "allowed_goals": ["check_in", "silent"],
+                "required_evidence_refs": ["dialogue:last_user"],
+            },
+        )
+
+        policy = json.loads(user_prompt)["validation_policy"]
+        self.assertIs(policy["required_should_initiate"], True)
+        self.assertEqual(policy["effective_allowed_goals"], ["check_in"])
+        self.assertEqual(policy["required_evidence_refs"], ["dialogue:last_user"])
+        self.assertEqual(policy["available_evidence_refs"], ["dialogue:last_user"])
+
     def test_planner_allows_active_plan_before_non_send_reappraisal(self) -> None:
         errors = validate_plan(
             self.plan,
