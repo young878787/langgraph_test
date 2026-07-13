@@ -82,7 +82,7 @@ class _StageProvider:
 
 
 class _InvalidPlanner:
-    def plan(self, context: dict, *, expected: dict) -> PlannerResult:
+    def plan(self, context: dict) -> PlannerResult:
         return PlannerResult(
             status="error",
             error="invalid planner result",
@@ -108,6 +108,17 @@ class InitiativeRunnerIntegrationTests(unittest.TestCase):
         self.assertEqual(len(traces), len(results))
         trace_payloads = [trace["trace"] for trace in traces]
         self.assertTrue(all("planner_prompt" in trace for trace in trace_payloads))
+        model_trace = json.dumps(
+            [
+                {key: trace.get(key)}
+                for trace in trace_payloads
+                for key in ("planner_prompt", "generator_prompt")
+                if key in trace
+            ],
+            ensure_ascii=False,
+        ).casefold()
+        self.assertNotIn('"expected"', model_trace)
+        self.assertNotIn("expected_invariants", model_trace)
         self.assertTrue(all("evaluator_raw" not in trace or "result" in trace for trace in trace_payloads))
         expired = next(result for result in results if result.scenario_id == "expired_context")
         self.assertTrue(expired.plan.should_initiate)
@@ -137,7 +148,7 @@ class InitiativeRunnerIntegrationTests(unittest.TestCase):
         self.assertIn("generator_raw", result.trace)
         self.assertIn("evaluator_raw", result.trace)
 
-    def test_expired_context_retries_transient_silent_planner_output(self) -> None:
+    def test_expired_context_oracle_mismatch_fails_post_run_without_model_retry(self) -> None:
         class RepairingProvider(_StageProvider):
             def __init__(self) -> None:
                 self.planner_calls = 0
@@ -166,9 +177,8 @@ class InitiativeRunnerIntegrationTests(unittest.TestCase):
 
         result = runner.run_fixture(load_fixture(FIXTURE_DIR / "expired_context.json"))
 
-        self.assertEqual(result.status, "PASS")
-        self.assertEqual(result.decision.action, "expire")
-        self.assertEqual(provider.planner_calls, 2)
+        self.assertEqual(result.status, "FAIL")
+        self.assertEqual(provider.planner_calls, 1)
         self.assertNotIn("generator_raw", result.trace)
 
     def test_live_api_rejects_mock_backend_as_error(self) -> None:

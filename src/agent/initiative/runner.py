@@ -448,7 +448,7 @@ class InitiativeRunner:
                         long_term_memory=state.get("long_term_memory", ""),
                         relationship_context=state.get("relationship_state", {}),
                         character_state_summary=state.get("character_state", {}),
-                        candidate_goal_context=fixture.expected,
+                        candidate_goal_context=state.get("candidate_goal_context", {}),
                     )
                     if isinstance(value, Mapping):
                         return deepcopy(dict(value))
@@ -473,7 +473,7 @@ class InitiativeRunner:
             "open_thread": open_thread,
             "relationship_context": deepcopy(state.get("relationship_state", {})),
             "character_state_summary": deepcopy(state.get("character_state", {})),
-            "candidate_goal_context": deepcopy(fixture.expected),
+            "candidate_goal_context": deepcopy(state.get("candidate_goal_context", {})),
             "evidence_refs": evidence_refs,
         }
 
@@ -481,7 +481,7 @@ class InitiativeRunner:
         method = _component_method(self.planner, ("plan", "create_plan", "generate_plan"))
         if method:
             try:
-                result = method(context, expected=fixture.expected)
+                result = method(context)
             except TypeError:
                 result = _call_variants(method, ((context,), (fixture, context), (context, opportunity)))
             if hasattr(result, "ok") and hasattr(result, "plan"):
@@ -502,7 +502,7 @@ class InitiativeRunner:
         elif self.provider is not None or self.live_api:
             from .planner import Planner
 
-            result = Planner(provider, config=self.config).plan(context, expected=fixture.expected)
+            result = Planner(provider, config=self.config).plan(context)
             if not result.ok:
                 validation_errors = list(result.validation_errors)
                 details = "; ".join(validation_errors)
@@ -580,12 +580,7 @@ class InitiativeRunner:
         prompt = _generator_prompt(fixture, context, plan)
         if method:
             try:
-                result = method(
-                    _plan_mapping(plan),
-                    context,
-                    decision="send",
-                    expected=fixture.expected,
-                )
+                result = method(_plan_mapping(plan), context, decision="send")
             except TypeError:
                 result = _call_variants(
                     method,
@@ -607,7 +602,6 @@ class InitiativeRunner:
                 _plan_mapping(plan),
                 context,
                 decision="send",
-                expected=fixture.expected,
             )
             if not result.ok:
                 details = "; ".join(result.validation_errors or [])
@@ -875,16 +869,14 @@ def _offline_message(plan: InitiativePlan, context: Mapping[str, Any]) -> str:
 def _planner_prompt(fixture: InitiativeFixture, context: Mapping[str, Any]) -> dict[str, str]:
     from .planner import build_planner_prompt
 
-    system, user = build_planner_prompt(context, expected=fixture.expected)
+    system, user = build_planner_prompt(context)
     return {"system": system, "user": user}
 
 
 def _generator_prompt(fixture: InitiativeFixture, context: Mapping[str, Any], plan: InitiativePlan) -> dict[str, str]:
     from .generator import build_generator_prompt
 
-    system, user = build_generator_prompt(
-        _plan_mapping(plan), context, expected=fixture.expected
-    )
+    system, user = build_generator_prompt(_plan_mapping(plan), context)
     return {"system": system, "user": user}
 
 

@@ -192,32 +192,19 @@ def build_planner_prompt(
 ) -> tuple[str, str]:
     """Build deterministic system/user prompts for independently testable Planner calls."""
     timezone = _config_value(config, "timezone", "Asia/Taipei")
-    expected = expected or {}
-    scenario_allowed_goals = list(expected.get("allowed_goals", []))
-    if expected.get("should_initiate") is True:
-        effective_allowed_goals = [goal for goal in scenario_allowed_goals if goal != "silent"]
-    elif expected.get("should_initiate") is False:
-        effective_allowed_goals = ["silent"]
-    else:
-        effective_allowed_goals = scenario_allowed_goals
     system_prompt = (
         "你是 initiative Planner。你只負責判斷是否值得角色主動聯絡與規劃 bounded plan，"
-        "不是回覆使用者，也不可生成台詞。expected 是測試情境的硬條件；"
-        "expected.should_initiate 是 planner 的硬條件；true 必須產生 initiating plan，"
-        "false 必須產生 silent plan。若未提供，send、expire、cancel 仍必須產生 initiating plan。"
+        "不是回覆使用者，也不可生成台詞。請只根據提供的 model-visible context 判斷，"
+        "不可假設測試標準答案或 fixture 標籤。"
         "只能輸出一個 JSON object，不要 Markdown、解釋或額外欄位。"
     )
     user_payload = {
         "context": dict(context),
-        "expected": dict(expected),
         "validation_policy": {
             "allowed_goals": sorted(ALLOWED_GOALS),
             "forbidden_goals": sorted(FORBIDDEN_GOALS),
             "timezone": timezone,
             "available_evidence_refs": list(context.get("evidence_refs", [])),
-            "effective_allowed_goals": effective_allowed_goals,
-            "required_should_initiate": expected.get("should_initiate"),
-            "required_evidence_refs": list(expected.get("required_evidence_refs", [])),
             "offset_bounds_minutes": [
                 _config_value(config, "min_offset_minutes", 0),
                 _config_value(config, "max_offset_minutes", 7 * 24 * 60),
@@ -279,7 +266,7 @@ class Planner:
     ) -> PlannerResult:
         """Call the injected provider and return a validated or explicit-error result."""
         system_prompt, user_prompt = build_planner_prompt(
-            context, expected=expected, config=self.validation_config
+            context, config=self.validation_config
         )
         raw_output: str | None = None
         try:
@@ -292,7 +279,7 @@ class Planner:
                 max_output_tokens=self.config.judge_max_output_tokens,
             )
             parsed = parse_planner_json(raw_output)
-            errors = validate_plan(parsed, context, expected=expected, config=self.validation_config)
+            errors = validate_plan(parsed, context, config=self.validation_config)
             if errors:
                 correction_prompt = json.dumps(
                     {
@@ -311,7 +298,7 @@ class Planner:
                     max_output_tokens=self.config.judge_max_output_tokens,
                 )
                 parsed = parse_planner_json(raw_output)
-                errors = validate_plan(parsed, context, expected=expected, config=self.validation_config)
+                errors = validate_plan(parsed, context, config=self.validation_config)
                 if errors:
                     return PlannerResult("error", raw_output=raw_output, error="invalid planner result", validation_errors=errors)
             return PlannerResult("ok", plan=dict(parsed), raw_output=raw_output)

@@ -324,7 +324,10 @@ class GoogleAIStudioProvider(LLMProvider):
             time.sleep(3)
             result = self._generate_json_internal(system_prompt, user_prompt, temperature, max_output_tokens)
         if result is None:
-            return "{}"
+            raise RuntimeError(
+                f"Google AI Studio JSON request returned an empty response "
+                f"for model {self.model} after retries"
+            )
         return result
 
     def _generate_internal(self, system_prompt: str, user_prompt: str, temperature: float, max_output_tokens: int | None = None) -> str | None:
@@ -431,7 +434,10 @@ class GoogleAIStudioProvider(LLMProvider):
                     if attempt < max_retries - 1:
                         time.sleep(2 ** attempt)
                         continue
-                return None
+                raise RuntimeError(
+                    f"Google AI Studio JSON request failed for model {self.model}: "
+                    f"{error_str}"
+                ) from e
 
         return None
 

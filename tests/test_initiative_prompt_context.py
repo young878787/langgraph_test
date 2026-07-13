@@ -272,7 +272,7 @@ class InitiativePromptBoundaryTests(unittest.TestCase):
 
         self.assertIn("expected reappraisal action requires an initiating plan", errors)
 
-    def test_planner_prompt_exposes_scenario_specific_contract(self) -> None:
+    def test_planner_prompt_does_not_expose_scenario_oracle(self) -> None:
         _, user_prompt = build_planner_prompt(
             self.context,
             expected={
@@ -282,10 +282,12 @@ class InitiativePromptBoundaryTests(unittest.TestCase):
             },
         )
 
-        policy = json.loads(user_prompt)["validation_policy"]
-        self.assertIs(policy["required_should_initiate"], True)
-        self.assertEqual(policy["effective_allowed_goals"], ["check_in"])
-        self.assertEqual(policy["required_evidence_refs"], ["dialogue:last_user"])
+        payload = json.loads(user_prompt)
+        policy = payload["validation_policy"]
+        self.assertNotIn("expected", payload)
+        self.assertNotIn("required_should_initiate", policy)
+        self.assertNotIn("effective_allowed_goals", policy)
+        self.assertNotIn("required_evidence_refs", policy)
         self.assertEqual(policy["available_evidence_refs"], ["dialogue:last_user"])
 
     def test_planner_allows_active_plan_before_non_send_reappraisal(self) -> None:

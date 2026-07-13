@@ -64,7 +64,6 @@ def build_generator_prompt(
     payload = {
         "initiative_plan": dict(plan),
         "bounded_context": dict(context),
-        "expected_invariants": dict(expected or {}),
         "output_contract": {
             "format": "plain_text_only",
             "not_a_user_reply": True,
@@ -138,7 +137,7 @@ class Generator:
         """Generate only for a runner decision of ``send``; otherwise do not call the provider."""
         if decision != "send":
             return GeneratorResult("skipped", error=f"generator gated by reappraisal decision: {decision}")
-        system_prompt, user_prompt = build_generator_prompt(plan, context, expected=expected)
+        system_prompt, user_prompt = build_generator_prompt(plan, context)
         raw_output: str | None = None
         try:
             if self._provider_error is not None or self.provider is None:
@@ -149,7 +148,7 @@ class Generator:
                 self.config.temperature,
                 max_output_tokens=self.config.short_max_tokens,
             )
-            errors = validate_generated_text(raw_output, plan=plan, expected=expected)
+            errors = validate_generated_text(raw_output, plan=plan)
             if errors:
                 return GeneratorResult("error", raw_output=raw_output, error="invalid generator output", validation_errors=errors)
             return GeneratorResult("ok", message=raw_output.strip(), raw_output=raw_output, validation_errors=[])

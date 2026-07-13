@@ -473,10 +473,18 @@ def log_initiative_trace(
     logged_at = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     data = dict(trace)
     scenario = data.get("scenario", {}) if isinstance(data.get("scenario"), Mapping) else {}
-    test_title = str(scenario.get("description") or scenario_id)
-    result = str(data.get("result", "UNKNOWN"))
-    gates = data.get("gates", []) if isinstance(data.get("gates"), list) else []
+    test_title = str(scenario.get("title") or scenario.get("description") or scenario_id)
+    result = str(data.get("result", "UNKNOWN")).upper()
+    gates = list(data.get("gates", [])) if isinstance(data.get("gates"), list) else []
     errors = [str(error) for error in data.get("errors", []) if error]
+    if result in {"FAIL", "ERROR"} and not any(
+        isinstance(gate, Mapping) and not gate.get("ok") for gate in gates
+    ):
+        gates.append({
+            "name": "runner_result",
+            "ok": False,
+            "summary": errors[0] if errors else f"runner reported {result}",
+        })
     failed_gates = [gate for gate in gates if isinstance(gate, Mapping) and not gate.get("ok")]
 
     failure = data.get("failure") if isinstance(data.get("failure"), Mapping) else {}
@@ -516,11 +524,11 @@ def log_initiative_trace(
         issue_summary = "\n".join(issue_lines)
     elif primary_reason:
         issue_summary = f"- **主要原因**：`{primary_reason}`"
+    elif gates:
+        issue_summary = "- 本次結果所附 gate 均通過。"
     else:
-        issue_summary = "- 未發現錯誤或失敗 gate。"
+        issue_summary = "- 未提供可驗證 gate；無法僅根據 runner 結果宣稱無問題。"
 
-    provider = scenario.get("provider_backend", "unknown")
-    model = scenario.get("model", "unknown")
     elapsed_ms = data.get("scenario_elapsed_ms")
     elapsed_text = f"{float(elapsed_ms) / 1000:.2f} 秒" if isinstance(elapsed_ms, (int, float)) else "未知"
     plan = data.get("plan")
@@ -529,6 +537,195 @@ def log_initiative_trace(
     generator_raw = data.get("generator_raw")
     evaluator_raw = data.get("evaluator_raw")
     prompt_hashes = data.get("prompt_hashes", {})
+
+    def cell(value: Any) -> str:
+        if value is None or value == "":
+            return "-"
+        if isinstance(value, (list, tuple, set)):
+            value = ", ".join(str(item) for item in value)
+        elif isinstance(value, Mapping):
+            value = json.dumps(value, ensure_ascii=False, default=str)
+        return str(value).replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+
+    steps = data.get("steps", data.get("step_traces", []))
+    if not isinstance(steps, (list, tuple)):
+        steps = []
+    attempts: list[tuple[Any, Mapping[str, Any]]] = []
+    for index, step in enumerate(steps, start=1):
+        if not isinstance(step, Mapping):
+            continue
+        step_attempts = step.get("provider_attempts")
+        if not isinstance(step_attempts, (list, tuple)):
+            model_decision = step.get("model_decision")
+            step_attempts = (
+                model_decision.get("provider_attempts", model_decision.get("attempts", []))
+                if isinstance(model_decision, Mapping) else []
+            )
+        if isinstance(step_attempts, (list, tuple)):
+            attempts.extend(
+                (step.get("step_index", index), attempt)
+                for attempt in step_attempts if isinstance(attempt, Mapping)
+            )
+        if not step_attempts:
+            model_decision = step.get("model_decision")
+            if isinstance(model_decision, Mapping) and any(
+                model_decision.get(key) is not None
+                for key in ("prompt_hash", "raw_output", "validation_errors", "provider")
+            ):
+                attempts.append((step.get("step_index", index), {
+                    "attempt": 1,
+                    "provider": model_decision.get("provider", step.get("provider_name")),
+                    "model": model_decision.get("model"),
+                    "prompt_hash": model_decision.get("prompt_hash", step.get("model_prompt_hash")),
+                    "raw_output": model_decision.get("raw_output", step.get("model_raw_output")),
+                    "validation_errors": model_decision.get("validation_errors", []),
+                }))
+
+    if not isinstance(prompt_hashes, Mapping):
+        prompt_hashes = {}
+    prompt_hashes = dict(prompt_hashes)
+    for step_index, attempt in attempts:
+        if attempt.get("prompt_hash"):
+            prompt_hashes.setdefault(f"step_{step_index}_attempt_{attempt.get('attempt', attempt.get('attempt_index', 1))}", attempt["prompt_hash"])
+
+    def first_nonempty(*values: Any, default: str = "unknown") -> str:
+        return str(next((value for value in values if value not in (None, "")), default))
+
+    first_model_decision = next(
+        (
+            step.get("model_decision") for step in steps
+            if isinstance(step, Mapping) and isinstance(step.get("model_decision"), Mapping)
+        ),
+        {},
+    )
+    first_attempt = attempts[0][1] if attempts else {}
+    provider = first_nonempty(
+        data.get("provider_backend"), scenario.get("provider_backend"),
+        first_attempt.get("provider"), first_model_decision.get("provider"),
+    )
+    model = first_nonempty(
+        data.get("model"), scenario.get("model"), first_attempt.get("model"),
+        first_model_decision.get("model"),
+    )
+    mode = first_nonempty(
+        data.get("mode"), scenario.get("mode"),
+        "LIVE_API" if data.get("live_api") is True else None,
+        "DETERMINISTIC" if data.get("live_api") is False else None,
+    )
+    step_rows = []
+    for index, step in enumerate(steps, start=1):
+        if not isinstance(step, Mapping):
+            continue
+        trigger = step.get("trigger", {})
+        trigger_text = trigger.get("type") if isinstance(trigger, Mapping) else trigger
+        before = step.get("event_before", {})
+        after = step.get("event_after", {})
+        before_text = before.get("status") if isinstance(before, Mapping) else before
+        after_text = after.get("status") if isinstance(after, Mapping) else after
+        before_text = before_text or step.get("status_before")
+        after_text = after_text or step.get("status_after")
+        before_version = (
+            before.get("version") if isinstance(before, Mapping) else None
+        )
+        after_version = after.get("version") if isinstance(after, Mapping) else None
+        before_version = before_version if before_version is not None else step.get("event_version_before", step.get("version_before"))
+        after_version = after_version if after_version is not None else step.get("event_version_after", step.get("version_after"))
+        model_decision = step.get("model_decision", {})
+        system_decision = step.get("system_decision", {})
+        model_action = model_decision.get("parsed_action") if isinstance(model_decision, Mapping) else None
+        system_action = system_decision.get("accepted_action") if isinstance(system_decision, Mapping) else None
+        reason = system_decision.get("reason_codes") if isinstance(system_decision, Mapping) else None
+        model_action = model_action or step.get("action")
+        reason = reason or step.get("reason_codes")
+        delivery = step.get("delivery", {})
+        delivery_text = delivery.get("status") if isinstance(delivery, Mapping) else delivery
+        delivery_text = delivery_text or step.get("delivery_status")
+        decision_record = step.get("decision_record", {})
+        decision_text = (
+            decision_record.get("decision_id") or decision_record.get("id")
+            if isinstance(decision_record, Mapping) else decision_record
+        )
+        delivery_audit = step.get("delivery_audit", {})
+        if not delivery_audit and isinstance(delivery, Mapping):
+            delivery_audit = delivery
+        delivery_identity = " / ".join(
+            str(value) for value in (
+                delivery_audit.get("idempotency_key"), delivery_audit.get("content_hash")
+            ) if value
+        ) if isinstance(delivery_audit, Mapping) else ""
+        step_gates = step.get("gates", [])
+        if isinstance(step_gates, (list, tuple)):
+            gate_text = ", ".join(
+                str(item.get("name", "gate")) + (" PASS" if item.get("ok", True) else " FAIL")
+                if isinstance(item, Mapping) else str(item)
+                for item in step_gates
+            )
+        else:
+            gate_text = step_gates
+        step_rows.append(
+            "| {index} | {time} | {trigger} | {before} | {before_version} | {action} | {reason} | {after} | {after_version} | {decision} | {delivery} | {identity} | {gate} |".format(
+                index=cell(step.get("step_index", index)),
+                time=cell(step.get("logical_time")),
+                trigger=cell(trigger_text),
+                before=cell(before_text),
+                before_version=cell(before_version),
+                action=cell(model_action or system_action),
+                reason=cell(reason),
+                after=cell(after_text),
+                after_version=cell(after_version),
+                decision=cell(decision_text),
+                delivery=cell(delivery_text),
+                identity=cell(delivery_identity),
+                gate=cell(gate_text),
+            )
+        )
+    step_table = "\n".join(step_rows) or "| - | - | 尚無步驟 | - | - | - | - | - | - | - | - | - | - |"
+
+    attempt_rows = []
+    for step_index, attempt in attempts:
+        validation = attempt.get("validation_errors", attempt.get("validation_error", attempt.get("error")))
+        attempt_rows.append(
+            f"| {cell(step_index)} | {cell(attempt.get('attempt', attempt.get('attempt_index')))} | "
+            f"{cell(attempt.get('provider'))} | {cell(attempt.get('model'))} | "
+            f"{cell(attempt.get('prompt_hash'))} | {cell(validation)} |"
+        )
+    attempt_table = "\n".join(attempt_rows) or "| - | - | - | - | - | 無 provider attempt 紀錄 |"
+    attempt_details = "\n\n".join(
+        f"#### Step {cell(step_index)} / Attempt {cell(attempt.get('attempt', attempt.get('attempt_index')))} raw\n\n"
+        + json_block(dict(attempt))
+        for step_index, attempt in attempts if attempt.get("raw_output") is not None
+    ) or "無 raw output。"
+    audit_details = []
+    for index, step in enumerate(steps, start=1):
+        if not isinstance(step, Mapping):
+            continue
+        step_index = step.get("step_index", index)
+        if isinstance(step.get("decision_record"), Mapping):
+            audit_details.append(
+                f"#### Step {cell(step_index)} DecisionRecord\n\n{json_block(step['decision_record'])}"
+            )
+        delivery_audit = step.get("delivery_audit")
+        if isinstance(delivery_audit, Mapping):
+            audit_details.append(
+                f"#### Step {cell(step_index)} Delivery audit\n\n{json_block(delivery_audit)}"
+            )
+    audit_detail_text = "\n\n".join(audit_details) or "無 DecisionRecord 或 delivery audit 紀錄。"
+
+    final_snapshot = data.get("cleanup_snapshot", data.get("final_snapshot", data.get("resources", {})))
+    hard_checks = data.get("hard_constraints", data.get("hard_constraint_results", []))
+    hard_rows = []
+    if isinstance(hard_checks, (list, tuple)):
+        for check in hard_checks:
+            if not isinstance(check, Mapping):
+                continue
+            hard_rows.append(
+                f"| {cell(check.get('name') or check.get('constraint'))} | {cell(check.get('expected'))} | "
+                f"{cell(check.get('actual'))} | {'PASS' if check.get('ok') else 'FAIL'} | {cell(check.get('evidence'))} |"
+            )
+    hard_table = "\n".join(hard_rows) or "| - | - | - | - | 尚無判定 |"
+    proposal = data.get("event_proposal", data.get("proposal"))
+    commitment = data.get("commitment", data.get("event_first_commitment"))
+    soft_quality = data.get("soft_quality", data.get("soft_scores", {}))
 
     key_outputs = []
     if plan is not None:
@@ -551,6 +748,7 @@ def log_initiative_trace(
 
 > **Run**: `{run_id}`
 > **時間**: {logged_at}
+> **Mode**: `{mode}`
 > **Provider / Model**: `{provider}` / `{model}`
 > **單情境完整耗時**: {elapsed_text}
 
@@ -563,6 +761,46 @@ def log_initiative_trace(
 | 狀態 | 階段 | 摘要 |
 |---|---|---|
 {gate_table}
+
+### Event 建立與 Commitment
+
+#### EventProposal
+
+{json_block(proposal) if proposal is not None else "尚無 EventProposal。"}
+
+#### Event-first Commitment
+
+{json_block(commitment) if commitment is not None else "尚無 commitment 紀錄。"}
+
+### 步驟判斷表
+
+| Step | Logical time | Trigger | Before | Ver. | AI / System action | Reason | After | Ver. | DecisionRecord | Delivery | Idempotency / Content hash | Gate |
+|---:|---|---|---|---:|---|---|---|---:|---|---|---|---|
+{step_table}
+
+### Provider attempts
+
+| Step | Attempt | Provider | Model | Prompt hash | Validation / Error |
+|---:|---:|---|---|---|---|
+{attempt_table}
+
+### Decision / Delivery audit
+
+{audit_detail_text}
+
+### 最終資源快照
+
+{json_block(final_snapshot)}
+
+### Hard constraint 判定
+
+| Constraint | Expected | Actual | Result | Evidence |
+|---|---|---|---|---|
+{hard_table}
+
+### Soft quality
+
+{json_block(soft_quality)}
 
 ### 關鍵輸出
 
@@ -580,6 +818,10 @@ def log_initiative_trace(
 #### Planner Raw Output
 
 {json_block(planner_raw) if planner_raw is not None else "尚無輸出。"}
+
+### Provider raw outputs
+
+{attempt_details}
 
 </details>
 
@@ -601,6 +843,7 @@ def log_initiative_summary(results: Iterable[Mapping[str, Any]]) -> None:
     counts = {"PASS": 0, "FAIL": 0, "ERROR": 0}
     status_icon = {"PASS": "✅", "FAIL": "❌", "ERROR": "💥"}
     rows: list[str] = []
+    compatibility_rows: list[str] = []
 
     for index, payload in enumerate(payloads, start=1):
         status = str(payload.get("status") or payload.get("result") or "ERROR").upper()
@@ -610,7 +853,7 @@ def log_initiative_summary(results: Iterable[Mapping[str, Any]]) -> None:
         trace = payload.get("trace") if isinstance(payload.get("trace"), Mapping) else {}
         scenario = trace.get("scenario") if isinstance(trace.get("scenario"), Mapping) else {}
         scenario_id = str(payload.get("scenario_id") or scenario.get("scenario_id") or f"scenario-{index}")
-        title = str(scenario.get("description") or scenario_id).replace("|", "\\|").replace("\n", " ")
+        title = str(scenario.get("title") or scenario.get("description") or scenario_id).replace("|", "\\|").replace("\n", " ")
         gates = payload.get("gates") if isinstance(payload.get("gates"), list) else trace.get("gates", [])
         failed_gate = next(
             (gate for gate in gates if isinstance(gate, Mapping) and not gate.get("ok")),
@@ -629,10 +872,38 @@ def log_initiative_summary(results: Iterable[Mapping[str, Any]]) -> None:
             detail = f"{failed_gate.get('name', 'unknown')}：{failed_gate.get('summary', '')}"
         elif errors:
             detail = str(errors[0])
+        elif not gates:
+            detail = "未提供 gate，無法獨立驗證"
         else:
             detail = "所有 gate 通過"
         detail = detail.replace("|", "\\|").replace("\n", " ")
+        steps = trace.get("steps", trace.get("step_traces", []))
+        first_action = payload.get("first_action") or trace.get("first_action")
+        if not first_action and isinstance(steps, (list, tuple)):
+            for step in steps:
+                if not isinstance(step, Mapping):
+                    continue
+                model = step.get("model_decision", {})
+                system = step.get("system_decision", {})
+                first_action = (
+                    model.get("parsed_action") if isinstance(model, Mapping) else None
+                ) or (system.get("accepted_action") if isinstance(system, Mapping) else None)
+                if first_action:
+                    break
+        snapshot = trace.get("cleanup_snapshot", trace.get("final_snapshot", {}))
+        final_status = payload.get("final_status") or trace.get("final_status")
+        delivery_count = payload.get("delivery_count", trace.get("delivery_count"))
+        if isinstance(snapshot, Mapping):
+            final_status = final_status or snapshot.get("event_status")
+            delivery_count = delivery_count if delivery_count is not None else snapshot.get("delivery_count")
+        safe_first_action = str(first_action or "-").replace("|", "\\|")
+        safe_final_status = str(final_status or "-").replace("|", "\\|")
         rows.append(
+            f"| {index} | {status_icon[status]} **{status}** | {title} | `{scenario_id}` | "
+            f"{safe_first_action} | {safe_final_status} | "
+            f"{delivery_count if delivery_count is not None else '-'} | {detail} |"
+        )
+        compatibility_rows.append(
             f"| {index} | {status_icon[status]} **{status}** | {title} | `{scenario_id}` | {detail} |"
         )
 
@@ -646,9 +917,18 @@ def log_initiative_summary(results: Iterable[Mapping[str, Any]]) -> None:
 
 > 共 **{total}** 個測試　✅ PASS **{counts['PASS']}**　❌ FAIL **{counts['FAIL']}**　💥 ERROR **{counts['ERROR']}**
 
+| # | 結果 | 測試標題 | Scenario ID | 第一主要動作 | 最終狀態 | Delivery | 失敗 Gate |
+|---:|---|---|---|---|---|---:|---|
+{chr(10).join(rows) if rows else '| - | - | 尚無測試結果 | - | - | - | - | - |'}
+
+<details>
+<summary>舊版摘要欄位相容檢視</summary>
+
 | # | 結果 | 測試標題 | Scenario ID | 問題摘要 |
 |---:|---|---|---|---|
-{chr(10).join(rows) if rows else '| - | - | 尚無測試結果 | - | - |'}
+{chr(10).join(compatibility_rows) if compatibility_rows else '| - | - | 尚無測試結果 | - | - |'}
+
+</details>
 {INITIATIVE_SUMMARY_END}"""
 
     try:
