@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -17,7 +18,7 @@ if "agent" not in sys.modules:
     sys.modules["agent"] = agent_package
 
 from agent.initiative.adapters import (  # noqa: E402
-    LegacyDialogueAdapter, MockMemoryAdapter, MockMessageAdapter,
+    GraphDialogueAdapter, LegacyDialogueAdapter, MockMemoryAdapter, MockMessageAdapter,
     MockPresenceAdapter, MockSessionAdapter, PresenceSubscription,
 )
 from agent.initiative.scenario import (  # noqa: E402
@@ -31,10 +32,10 @@ FIXTURES = ROOT / "tests" / "fixtures" / "initiative_v02" / "core_scenarios.json
 
 def test_core_fixture_distribution_and_oracle_isolation() -> None:
     fixtures = load_scenarios(FIXTURES)
-    assert len(fixtures) == 30
+    assert len(fixtures) == 10
     assert Counter(item.model.category for item in fixtures) == {
-        "L0": 8, "L1": 6, "L2": 8,
-        "cross_session_presence": 4, "delivery_recovery": 4,
+        "L0": 5, "L1": 1, "L2": 2,
+        "cross_session_presence": 1, "delivery_recovery": 1,
     }
     for fixture in fixtures:
         assert fixture.model.title
@@ -50,8 +51,11 @@ def test_core_fixture_distribution_and_oracle_isolation() -> None:
         assert "expected_action" not in payload
         assert "hard_constraints" not in payload
         assert "soft_preferences" not in payload
+        assert "purpose" not in payload
+        assert "timeline" not in payload
+        assert fixture.driver.steps or fixture.harness.steps
 
-    precedence = next(item for item in fixtures if item.model.scenario_id == "delivery_04")
+    precedence = next(item for item in fixtures if item.model.scenario_id == "core_07_expired_event")
     assert precedence.oracle.expected_action == "EXPIRE"
     assert precedence.oracle.expected_steps[0].decision_owner == "system"
     assert precedence.oracle.expected_final.event_status == "EXPIRED"
@@ -105,6 +109,41 @@ def test_dialogue_adapter_rejects_oracle_and_scheduler_state() -> None:
         adapter.respond({"text": "no", "scheduler": object()})
 
 
+def test_driver_and_harness_views_split_fault_controls() -> None:
+    fixture = next(item for item in load_scenarios(FIXTURES) if item.model.scenario_id == "core_09_exactly_once_recovery")
+    driver_types = {item.type for item in fixture.driver.steps}
+    harness_types = {item.type for item in fixture.harness.steps}
+    assert not driver_types & {"inject_fault", "duplicate_wakeup", "start_competing_worker"}
+    assert harness_types <= {"seed_via_factory", "activate_event", "deliver_once", "inject_fault", "duplicate_wakeup", "start_competing_worker"}
+    assert len(fixture.driver.steps) + len(fixture.harness.steps) == (
+        len(fixture.model.prelude) + len(fixture.model.timeline)
+    )
+
+
+def test_graph_dialogue_adapter_runs_complete_graph_and_retains_state() -> None:
+    class FakeGraph:
+        def invoke(self, state):
+            updated = dict(state)
+            history = list(updated.get("conversation_history", []))
+            history.extend((
+                {"role": "user", "content": updated["user_input"]},
+                {"role": "assistant", "content": f"角色回覆:{updated['user_input']}"},
+            ))
+            updated["conversation_history"] = history
+            updated["response"] = history[-1]["content"]
+            return updated
+
+    with patch("agent.graph.build_graph", return_value=FakeGraph()), patch(
+        "agent.graph.new_state", return_value={"conversation_history": []}
+    ):
+        adapter = GraphDialogueAdapter()
+        assert adapter.respond({"user_input": "第一輪", "turn_id": "u1"}) == "角色回覆:第一輪"
+        assert adapter.respond({"user_input": "第二輪", "turn_id": "u2"}) == "角色回覆:第二輪"
+        assert len(adapter.state["conversation_history"]) == 4
+        with unittest.TestCase().assertRaises(ValueError):
+            adapter.respond({"user_input": "不可見", "oracle": {"expected_action": "SEND_NOW"}})
+
+
 def test_session_and_memory_are_world_scoped_and_copied() -> None:
     sessions = MockSessionAdapter()
     sessions.save("w1", "s1", {"turn": 1})
@@ -140,7 +179,7 @@ def test_report_keeps_plumbing_model_and_soft_quality_separate() -> None:
     fixtures = load_scenarios(FIXTURES)[:2]
     observations = [
         ScenarioObservation(fixtures[0].model.scenario_id, fixtures[0].oracle.expected_action, soft_scores={"naturalness": 4}),
-        ScenarioObservation(fixtures[1].model.scenario_id, "SEND_NOW", deliveries=2, hard_violations=("duplicate",)),
+        ScenarioObservation(fixtures[1].model.scenario_id, "CANCEL", deliveries=2, hard_violations=("duplicate",)),
     ]
     report = build_report(fixtures, observations)
     assert set(report) == {"plumbing_result", "model_decision_result", "soft_quality_result"}
@@ -156,6 +195,12 @@ class ScenarioAdapterTests(unittest.TestCase):
 
     def test_dialogue_boundary(self) -> None:
         test_dialogue_adapter_rejects_oracle_and_scheduler_state()
+
+    def test_graph_dialogue_boundary(self) -> None:
+        test_graph_dialogue_adapter_runs_complete_graph_and_retains_state()
+
+    def test_driver_harness_split(self) -> None:
+        test_driver_and_harness_views_split_fault_controls()
 
     def test_fixture_validation(self) -> None:
         test_fixture_validation_rejects_invalid_contract_before_model_payload()

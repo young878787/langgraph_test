@@ -474,7 +474,10 @@ def log_initiative_trace(
     data = dict(trace)
     scenario = data.get("scenario", {}) if isinstance(data.get("scenario"), Mapping) else {}
     test_title = str(scenario.get("title") or scenario.get("description") or scenario_id)
-    result = str(data.get("result", "UNKNOWN")).upper()
+    result = str(data.get("flow_result", data.get("result", "UNKNOWN"))).upper()
+    human_review = str(data.get("human_review", "PENDING")).upper()
+    if human_review not in {"PENDING", "APPROVED", "REJECTED"}:
+        human_review = "PENDING"
     gates = list(data.get("gates", [])) if isinstance(data.get("gates"), list) else []
     errors = [str(error) for error in data.get("errors", []) if error]
     if result in {"FAIL", "ERROR"} and not any(
@@ -536,7 +539,6 @@ def log_initiative_trace(
     planner_raw = data.get("planner_raw")
     generator_raw = data.get("generator_raw")
     evaluator_raw = data.get("evaluator_raw")
-    prompt_hashes = data.get("prompt_hashes", {})
 
     def cell(value: Any) -> str:
         if value is None or value == "":
@@ -551,6 +553,15 @@ def log_initiative_trace(
     if not isinstance(steps, (list, tuple)):
         steps = []
     attempts: list[tuple[Any, Mapping[str, Any]]] = []
+    call_ledger = data.get("call_ledger", [])
+    if isinstance(call_ledger, (list, tuple)):
+        for entry in call_ledger:
+            if not isinstance(entry, Mapping):
+                continue
+            normalized = dict(entry)
+            if "raw_output" not in normalized and "raw_response" in normalized:
+                normalized["raw_output"] = normalized.get("raw_response")
+            attempts.append((normalized.get("call_id", "logical-stage"), normalized))
     for index, step in enumerate(steps, start=1):
         if not isinstance(step, Mapping):
             continue
@@ -581,13 +592,6 @@ def log_initiative_trace(
                     "validation_errors": model_decision.get("validation_errors", []),
                 }))
 
-    if not isinstance(prompt_hashes, Mapping):
-        prompt_hashes = {}
-    prompt_hashes = dict(prompt_hashes)
-    for step_index, attempt in attempts:
-        if attempt.get("prompt_hash"):
-            prompt_hashes.setdefault(f"step_{step_index}_attempt_{attempt.get('attempt', attempt.get('attempt_index', 1))}", attempt["prompt_hash"])
-
     def first_nonempty(*values: Any, default: str = "unknown") -> str:
         return str(next((value for value in values if value not in (None, "")), default))
 
@@ -614,7 +618,7 @@ def log_initiative_trace(
     )
     mode = first_nonempty(
         data.get("mode"), scenario.get("mode"),
-        "LIVE_API" if data.get("live_api") is True else None,
+        "LIVE_MODEL_E2E_VIRTUAL_IO" if data.get("live_api") is True else None,
         "DETERMINISTIC" if data.get("live_api") is False else None,
     )
     step_rows = []
@@ -690,11 +694,13 @@ def log_initiative_trace(
     for step_index, attempt in attempts:
         validation = attempt.get("validation_errors", attempt.get("validation_error", attempt.get("error")))
         attempt_rows.append(
-            f"| {cell(step_index)} | {cell(attempt.get('attempt', attempt.get('attempt_index')))} | "
+            f"| {cell(attempt.get('call_id'))} | {cell(attempt.get('stage'))} | "
+            f"{cell(step_index)} | {cell(attempt.get('attempt', attempt.get('attempt_index')))} | "
             f"{cell(attempt.get('provider'))} | {cell(attempt.get('model'))} | "
+            f"{cell(attempt.get('elapsed_ms'))} | {cell(attempt.get('validation_status'))} | "
             f"{cell(attempt.get('prompt_hash'))} | {cell(validation)} |"
         )
-    attempt_table = "\n".join(attempt_rows) or "| - | - | - | - | - | 無 provider attempt 紀錄 |"
+    attempt_table = "\n".join(attempt_rows) or "| - | - | - | - | - | - | - | - | - | 無 provider attempt 紀錄 |"
     attempt_details = "\n\n".join(
         f"#### Step {cell(step_index)} / Attempt {cell(attempt.get('attempt', attempt.get('attempt_index')))} raw\n\n"
         + json_block(dict(attempt))
@@ -745,10 +751,66 @@ def log_initiative_trace(
             ("AI 主動訊息", flow.get("proactive_message")),
         ]
         flow_table = "\n".join(f"| {cell(label)} | {cell(value)} |" for label, value in flow_rows)
-        flow_reasoning = bullet_list(flow.get("reasoning"))
+        runtime_summary = bullet_list(flow.get("runtime_summary"))
     else:
         flow_table = "| - | 尚無 initiative_flow；請查看步驟判斷表。 |"
-        flow_reasoning = "- 尚無流程摘要。"
+        runtime_summary = "- 尚無流程摘要。"
+
+    ai_decision_rows = []
+    if isinstance(call_ledger, (list, tuple)):
+        for entry in call_ledger:
+            if not isinstance(entry, Mapping):
+                continue
+            stage = entry.get("stage")
+            if stage not in {"candidate_scan", "candidate_consolidation", "reappraisal"}:
+                continue
+            parsed: Mapping[str, Any] = {}
+            raw_response = entry.get("raw_response")
+            if isinstance(raw_response, str):
+                try:
+                    candidate = json.loads(raw_response)
+                    if isinstance(candidate, Mapping):
+                        parsed = candidate
+                except json.JSONDecodeError:
+                    parsed = {}
+            ai_decision_rows.append(
+                "| {call_id} | {stage} | {action} | {rationale} | {evidence} | {validation} |".format(
+                    call_id=cell(entry.get("call_id")),
+                    stage=cell(stage),
+                    action=cell(parsed.get("action") or parsed.get("decision_type")),
+                    rationale=cell(parsed.get("short_rationale")),
+                    evidence=cell(parsed.get("evidence_refs")),
+                    validation=cell(entry.get("validation_status") or entry.get("validation_errors")),
+                )
+            )
+    for index, step in enumerate(steps, start=1):
+        if not isinstance(step, Mapping):
+            continue
+        decision = step.get("model_decision")
+        if not isinstance(decision, Mapping):
+            continue
+        step_attempts = step.get("provider_attempts")
+        first_step_attempt = (
+            step_attempts[0]
+            if isinstance(step_attempts, (list, tuple)) and step_attempts
+            and isinstance(step_attempts[0], Mapping)
+            else {}
+        )
+        ai_decision_rows.append(
+            "| {call_id} | {stage} | {action} | {rationale} | {evidence} | {validation} |".format(
+                call_id=cell(decision.get("call_id") or first_step_attempt.get("call_id")),
+                stage=cell(decision.get("stage") or first_step_attempt.get("stage")),
+                action=cell(decision.get("parsed_action") or decision.get("action")),
+                rationale=cell(decision.get("short_rationale")),
+                evidence=cell(decision.get("evidence_refs")),
+                validation=cell(
+                    decision.get("validation_status")
+                    or first_step_attempt.get("validation_status")
+                    or decision.get("validation_errors")
+                ),
+            )
+        )
+    ai_decision_table = "\n".join(ai_decision_rows) or "| - | - | - | - | - | 尚無實際 AI 決策紀錄 |"
 
     key_outputs = []
     if plan is not None:
@@ -779,16 +841,24 @@ def log_initiative_trace(
 > **Mode**: `{mode}`
 > **Provider / Model**: `{provider}` / `{model}`
 > **單情境完整耗時**: {elapsed_text}
+> **Flow result**: `{result}`
+> **Human review**: `{human_review}`
 
-### 主動流程摘要
+### Runtime 流程摘要
 
 | 項目 | 內容 |
 |---|---|
 {flow_table}
 
-#### AI 主動建立事件的思考流程
+#### Runtime 狀態轉移摘要
 
-{flow_reasoning}
+{runtime_summary}
+
+### AI 決策紀錄
+
+| Call ID | Stage | Action | Short rationale | Evidence refs | Validation |
+|---|---|---|---|---|---|
+{ai_decision_table}
 
 ### 問題摘要
 
@@ -807,7 +877,7 @@ def log_initiative_trace(
 {key_output_section}
 
 <details>
-<summary>展開 debug 細節：Gate、Audit、Provider attempts、Prompt 指紋與 raw output</summary>
+<summary>展開 debug 細節：Gate、Audit、Provider attempts 與 raw output</summary>
 
 ### Gate 結果
 
@@ -839,15 +909,11 @@ def log_initiative_trace(
 
 {json_block(soft_quality)}
 
-### Provider attempts
+### AI Call Ledger
 
-| Step | Attempt | Provider | Model | Prompt hash | Validation / Error |
-|---:|---:|---|---|---|---|
+| Call ID | Stage | Step | Attempt | Provider | Model | Elapsed ms | Validation | Prompt hash | Error |
+|---|---|---:|---:|---|---|---:|---|---|---|
 {attempt_table}
-
-### Prompt 指紋
-
-{json_block(prompt_hashes)}
 
 {prompts_text}
 
@@ -882,9 +948,17 @@ def log_initiative_summary(results: Iterable[Mapping[str, Any]]) -> None:
     compatibility_rows: list[str] = []
 
     for index, payload in enumerate(payloads, start=1):
-        status = str(payload.get("status") or payload.get("result") or "ERROR").upper()
+        status = str(
+            payload.get("flow_result")
+            or payload.get("status")
+            or payload.get("result")
+            or "ERROR"
+        ).upper()
         if status not in counts:
             status = "ERROR"
+        human_review = str(payload.get("human_review") or "PENDING").upper()
+        if human_review not in {"PENDING", "APPROVED", "REJECTED"}:
+            human_review = "PENDING"
         counts[status] += 1
         trace = payload.get("trace") if isinstance(payload.get("trace"), Mapping) else {}
         scenario = trace.get("scenario") if isinstance(trace.get("scenario"), Mapping) else {}
@@ -935,7 +1009,7 @@ def log_initiative_summary(results: Iterable[Mapping[str, Any]]) -> None:
         safe_first_action = str(first_action or "-").replace("|", "\\|")
         safe_final_status = str(final_status or "-").replace("|", "\\|")
         rows.append(
-            f"| {index} | {status_icon[status]} **{status}** | {title} | `{scenario_id}` | "
+            f"| {index} | {status_icon[status]} **{status}** | **{human_review}** | {title} | `{scenario_id}` | "
             f"{safe_first_action} | {safe_final_status} | "
             f"{delivery_count if delivery_count is not None else '-'} | {detail} |"
         )
@@ -945,7 +1019,11 @@ def log_initiative_summary(results: Iterable[Mapping[str, Any]]) -> None:
 
     total = len(payloads)
     all_passed = total > 0 and counts["PASS"] == total
-    overall = "✅ **全數通過**" if all_passed else "❌ **發現失敗或錯誤，請優先查看紅色項目**"
+    overall = (
+        "✅ **Flow 全數通過；語意仍以 Human review 欄位為準**"
+        if all_passed
+        else "❌ **Flow 發現失敗或錯誤，請優先查看紅色項目**"
+    )
     summary = f"""{INITIATIVE_SUMMARY_START}
 ## Initiative 測試總覽
 
@@ -953,9 +1031,9 @@ def log_initiative_summary(results: Iterable[Mapping[str, Any]]) -> None:
 
 > 共 **{total}** 個測試　✅ PASS **{counts['PASS']}**　❌ FAIL **{counts['FAIL']}**　💥 ERROR **{counts['ERROR']}**
 
-| # | 結果 | 測試標題 | Scenario ID | 第一主要動作 | 最終狀態 | Delivery | 失敗 Gate |
-|---:|---|---|---|---|---|---:|---|
-{chr(10).join(rows) if rows else '| - | - | 尚無測試結果 | - | - | - | - | - |'}
+| # | Flow result | Human review | 測試標題 | Scenario ID | 第一主要動作 | 最終狀態 | Delivery | 失敗 Gate |
+|---:|---|---|---|---|---|---|---:|---|
+{chr(10).join(rows) if rows else '| - | - | PENDING | 尚無測試結果 | - | - | - | - | - |'}
 
 <details>
 <summary>舊版摘要欄位相容檢視</summary>

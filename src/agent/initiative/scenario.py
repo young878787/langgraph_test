@@ -24,6 +24,16 @@ _TIMELINE_TYPES = {"advance_clock", "user_message", "presence_signal", "acknowle
 _TRIGGERS = {"DUE_EVALUATION", "EXPIRY", "PRESENCE", "USER_MESSAGE", "USER_CANCEL", "ACK_DEADLINE", "RECOVERY", "DUPLICATE_WAKEUP", "STALE_COMMIT", "INTERNAL_OPPORTUNITY"}
 _TERMINAL_STATUSES = {"COMPLETED", "CANCELLED", "EXPIRED", "SILENCED"}
 
+_DRIVER_PRELUDE_TYPES = {"dialogue_turn", "request_reminder", "internal_opportunity"}
+_HARNESS_PRELUDE_TYPES = {"seed_via_factory", "activate_event", "deliver_once"}
+_DRIVER_TIMELINE_TYPES = {
+    "advance_clock", "user_message", "presence_signal", "acknowledge_event",
+    "cancel_event", "resolve_topic", "checkpoint_session", "open_session",
+    "set_do_not_disturb", "set_world_state", "set_external_observation",
+    "shutdown_world",
+}
+_HARNESS_TIMELINE_TYPES = {"inject_fault", "duplicate_wakeup", "start_competing_worker"}
+
 
 def _nonempty(value: Any, label: str) -> str:
     text = str(value).strip()
@@ -141,10 +151,113 @@ class ModelInputView:
     timeline: tuple[TimelineStep, ...]
 
     def to_payload(self) -> dict[str, Any]:
-        payload = {"schema_version": 2, "scenario_id": self.scenario_id, "category": self.category, "title": self.title, "purpose": self.purpose, "clock_start": self.clock_start, "context": self.context.to_model_payload(), "prelude": [_step_payload(item) for item in self.prelude], "timeline": [_step_payload(item) for item in self.timeline]}
+        """Return only the initially observable runtime state.
+
+        The historical name is retained for callers loading v0.2 fixtures.  It
+        must not expose the human report title/purpose or future driver steps.
+        Live stages should normally build a fresh ``RuntimeModelView`` at the
+        point of each provider call.
+        """
+        payload = RuntimeModelView.from_context(
+            logical_now=self.clock_start,
+            context=self.context,
+        ).to_payload()
         encoded = json.dumps(payload, ensure_ascii=False).casefold()
-        if any(token in encoded for token in ('"expected_', '"oracle"', '"hard_constraints"', '"soft_preferences"', '"log_assertions"')):
+        if any(token in encoded for token in (
+            '"expected_', '"oracle"', '"hard_constraints"',
+            '"soft_preferences"', '"log_assertions"', '"purpose"',
+            '"timeline"', '"fault',
+        )):
             raise ScenarioError("oracle data leaked into model input")
+        return payload
+
+
+@dataclass(frozen=True)
+class ScenarioDriverView:
+    """Only user/environment inputs that may drive runtime progress."""
+
+    clock_start: str
+    identity: Mapping[str, str]
+    prelude: tuple[PreludeStep, ...] = ()
+    timeline: tuple[TimelineStep, ...] = ()
+
+    @property
+    def steps(self) -> tuple[PreludeStep | TimelineStep, ...]:
+        return (*self.prelude, *self.timeline)
+
+
+@dataclass(frozen=True)
+class HarnessControlView:
+    """Fault/recovery controls which are never model-visible."""
+
+    prelude: tuple[PreludeStep, ...] = ()
+    timeline: tuple[TimelineStep, ...] = ()
+
+    @property
+    def steps(self) -> tuple[PreludeStep | TimelineStep, ...]:
+        return (*self.prelude, *self.timeline)
+
+
+@dataclass(frozen=True)
+class RuntimeModelView:
+    """Allowlisted state reconstructed immediately before a model stage."""
+
+    logical_now: str
+    identity: Mapping[str, str]
+    transcript: tuple[Mapping[str, Any], ...] = ()
+    session_checkpoint: Mapping[str, Any] = field(default_factory=dict)
+    memories: tuple[Mapping[str, Any], ...] = ()
+    presence: Mapping[str, Any] = field(default_factory=dict)
+    world: Mapping[str, Any] = field(default_factory=dict)
+    external_observations: tuple[Mapping[str, Any], ...] = ()
+    provenance: tuple[ProvenanceRef, ...] = ()
+    active_events: tuple[Mapping[str, Any], ...] = ()
+
+    @classmethod
+    def from_context(
+        cls,
+        *,
+        logical_now: str,
+        context: ContextBundle,
+        transcript: Iterable[Mapping[str, Any]] | None = None,
+        active_events: Iterable[Mapping[str, Any]] = (),
+    ) -> "RuntimeModelView":
+        return cls(
+            logical_now=logical_now,
+            identity=MappingProxyType(deepcopy(dict(context.identity))),
+            transcript=tuple(deepcopy(
+                context.conversation if transcript is None else tuple(transcript)
+            )),
+            session_checkpoint=MappingProxyType(deepcopy(dict(context.session_checkpoint))),
+            memories=tuple(deepcopy(context.memories)),
+            presence=MappingProxyType(deepcopy(dict(context.presence))),
+            world=MappingProxyType(deepcopy(dict(context.world))),
+            external_observations=tuple(deepcopy(context.external_data)),
+            provenance=context.provenance,
+            active_events=tuple(deepcopy(tuple(active_events))),
+        )
+
+    def to_payload(self) -> dict[str, Any]:
+        payload = {
+            "schema_version": "initiative.runtime_model_view.v1",
+            "logical_now": self.logical_now,
+            "identity": deepcopy(dict(self.identity)),
+            "transcript": deepcopy(list(self.transcript)),
+            "session_checkpoint": deepcopy(dict(self.session_checkpoint)),
+            "memories": deepcopy(list(self.memories)),
+            "presence": deepcopy(dict(self.presence)),
+            "world": deepcopy(dict(self.world)),
+            "external_observations": deepcopy(list(self.external_observations)),
+            "provenance": [asdict(item) for item in self.provenance],
+            "active_events": deepcopy(list(self.active_events)),
+        }
+        encoded = json.dumps(payload, ensure_ascii=False).casefold()
+        denied = (
+            '"oracle"', '"expected_', '"hard_constraints"', '"soft_preferences"',
+            '"purpose"', '"title"', '"timeline"', '"inject_fault"',
+        )
+        if any(token in encoded for token in denied):
+            raise ScenarioError("non-runtime data leaked into model input")
         return payload
 
 
@@ -164,6 +277,8 @@ class OracleView:
 class ScenarioFixture:
     model: ModelInputView
     oracle: OracleView
+    driver: ScenarioDriverView
+    harness: HarnessControlView
 
 
 def _step_payload(step: PreludeStep | TimelineStep) -> dict[str, Any]:
@@ -260,7 +375,19 @@ def fixture_from_mapping(raw: Mapping[str, Any]) -> ScenarioFixture:
     except (KeyError, TypeError) as exc:
         raise ScenarioError(f"invalid scenario fixture: {exc}") from exc
     model.to_payload()
-    return ScenarioFixture(model, oracle)
+    driver = ScenarioDriverView(
+        model.clock_start,
+        model.context.identity,
+        tuple(item for item in prelude if item.type in _DRIVER_PRELUDE_TYPES),
+        tuple(item for item in timeline if item.type in _DRIVER_TIMELINE_TYPES),
+    )
+    harness = HarnessControlView(
+        tuple(item for item in prelude if item.type in _HARNESS_PRELUDE_TYPES),
+        tuple(item for item in timeline if item.type in _HARNESS_TIMELINE_TYPES),
+    )
+    if len(driver.steps) + len(harness.steps) != len(prelude) + len(timeline):
+        raise ScenarioError("scenario contains a step outside Driver/Harness allowlists")
+    return ScenarioFixture(model, oracle, driver, harness)
 
 
 def load_scenarios(path: str | Path) -> tuple[ScenarioFixture, ...]:
@@ -310,4 +437,10 @@ def _averages(observations: Iterable[ScenarioObservation]) -> dict[str, float]:
     return {key: sum(values) / len(values) for key, values in buckets.items()}
 
 
-__all__ = ["ContextBundle", "ExpectedFinal", "ExpectedStep", "LogAssertion", "ModelInputView", "OracleView", "PreludeStep", "ProvenanceRef", "ScenarioError", "ScenarioFixture", "ScenarioObservation", "TimelineStep", "action_confusion", "build_report", "fixture_from_mapping", "load_scenarios"]
+__all__ = [
+    "ContextBundle", "ExpectedFinal", "ExpectedStep", "HarnessControlView",
+    "LogAssertion", "ModelInputView", "OracleView", "PreludeStep",
+    "ProvenanceRef", "RuntimeModelView", "ScenarioDriverView", "ScenarioError",
+    "ScenarioFixture", "ScenarioObservation", "TimelineStep", "action_confusion",
+    "build_report", "fixture_from_mapping", "load_scenarios",
+]

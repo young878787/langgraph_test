@@ -1,14 +1,14 @@
 [
   {
     "schema_version": 2,
-    "scenario_id": "l0_01",
-    "title": "Agent 承諾五分鐘後回來",
+    "scenario_id": "core_01_commitment_followup",
+    "title": "角色承諾稍後續接",
     "category": "L0",
-    "purpose": "驗證 event-first commitment 與準時續接",
+    "purpose": "角色明確承諾稍後回來並延續未完成話題",
     "clock_start": "2026-07-13T10:00:00+08:00",
     "context": {
       "identity": {
-        "run_id": "run-l0_01",
+        "run_id": "run-core_01_commitment_followup",
         "world_id": "world-l0_01",
         "user_id": "user-l0_01",
         "character_id": "character-rushia",
@@ -18,7 +18,7 @@
         {
           "turn_id": "turn:u1",
           "role": "user",
-          "content": "驗證 event-first commitment 與準時續接"
+          "content": "我先去煮飯，五分鐘後回來，我們再繼續聊剛才那件事。"
         }
       ],
       "session_checkpoint": {},
@@ -26,9 +26,7 @@
       "presence": {
         "status": "unknown"
       },
-      "world": {
-        "scenario_fact": "驗證 event-first commitment 與準時續接"
-      },
+      "world": {},
       "external_data": [],
       "provenance": [
         {
@@ -42,7 +40,7 @@
       {
         "step_id": "p1",
         "type": "dialogue_turn",
-        "input": "稍後請延續目前話題",
+        "input": "我先去煮飯，五分鐘後回來，我們再繼續聊剛才那件事。",
         "allow_event_proposal": true
       }
     ],
@@ -104,763 +102,14 @@
   },
   {
     "schema_version": 2,
-    "scenario_id": "l0_02",
-    "title": "後續對話已取代原續接",
-    "category": "L0",
-    "purpose": "驗證新對話解決舊話題後取消續接",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l0_02",
-        "world_id": "world-l0_02",
-        "user_id": "user-l0_02",
-        "character_id": "character-rushia",
-        "session_id": "session-l0_02"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證新對話解決舊話題後取消續接"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證新對話解決舊話題後取消續接"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "seed_via_factory",
-        "source_turn_ids": [
-          "turn:u1"
-        ],
-        "schedule_at": "2026-07-13T10:05:00+08:00",
-        "expires_at": "2026-07-13T11:00:00+08:00"
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "user_message",
-        "input": "這件事已經處理好了",
-        "resolve_topic": true
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "CANCEL",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "DUE_EVALUATION",
-          "decision_owner": "model",
-          "expected_action": "CANCEL",
-          "expected_status_before": "DUE",
-          "expected_status_after": "CANCELLED",
-          "allowed_reason_codes": [
-            "superseded_context"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "CANCELLED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 0,
-        "transport_message_count": 0,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "superseded_context"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l0_03",
-    "title": "合法的稍後分享",
-    "category": "L0",
-    "purpose": "驗證有限世界狀態支持的單次分享",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l0_03",
-        "world_id": "world-l0_03",
-        "user_id": "user-l0_03",
-        "character_id": "character-rushia",
-        "session_id": "session-l0_03"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證有限世界狀態支持的單次分享"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證有限世界狀態支持的單次分享"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "dialogue_turn",
-        "input": "稍後請延續目前話題",
-        "allow_event_proposal": true
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "set_world_state",
-        "key": "activity_completed",
-        "value": true
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "SEND_NOW",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "DUE_EVALUATION",
-          "decision_owner": "model",
-          "expected_action": "SEND_NOW",
-          "expected_status_before": "DUE",
-          "expected_status_after": "COMPLETED",
-          "allowed_reason_codes": [
-            "send_now"
-          ],
-          "expected_delivery_delta": 1,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "COMPLETED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 1,
-        "transport_message_count": 1,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [],
-      "soft_preferences": [
-        "low_pressure"
-      ],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l0_04",
-    "title": "Worker 恢復時事件已過期",
-    "category": "L0",
-    "purpose": "驗證 expiry precedence 阻止逾期投遞",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l0_04",
-        "world_id": "world-l0_04",
-        "user_id": "user-l0_04",
-        "character_id": "character-rushia",
-        "session_id": "session-l0_04"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證 expiry precedence 阻止逾期投遞"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證 expiry precedence 阻止逾期投遞"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "seed_via_factory",
-        "source_turn_ids": [
-          "turn:u1"
-        ],
-        "schedule_at": "2026-07-13T10:05:00+08:00",
-        "expires_at": "2026-07-13T11:00:00+08:00"
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "advance_clock",
-        "minutes": 60
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "EXPIRE",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "EXPIRY",
-          "decision_owner": "system",
-          "expected_action": "EXPIRE",
-          "expected_status_before": "ACTIVE",
-          "expected_status_after": "EXPIRED",
-          "allowed_reason_codes": [
-            "must_not_send_after_expiration"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "EXPIRED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 0,
-        "transport_message_count": 0,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "must_not_send_after_expiration"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l0_05",
-    "title": "到期但活動尚未完成",
-    "category": "L0",
-    "purpose": "驗證 DELAY 後重新評估並完成投遞",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l0_05",
-        "world_id": "world-l0_05",
-        "user_id": "user-l0_05",
-        "character_id": "character-rushia",
-        "session_id": "session-l0_05"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證 DELAY 後重新評估並完成投遞"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證 DELAY 後重新評估並完成投遞"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "seed_via_factory",
-        "source_turn_ids": [
-          "turn:u1"
-        ],
-        "schedule_at": "2026-07-13T10:05:00+08:00",
-        "expires_at": "2026-07-13T11:00:00+08:00"
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "advance_clock",
-        "minutes": 60
-      },
-      {
-        "step_id": "t2",
-        "type": "advance_clock",
-        "minutes": 60
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "DELAY",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "DUE_EVALUATION",
-          "decision_owner": "model",
-          "expected_action": "DELAY",
-          "expected_status_before": "DUE",
-          "expected_status_after": "DELAYED",
-          "allowed_reason_codes": [
-            "delay"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        },
-        {
-          "step_id": "decision-2",
-          "trigger": "DUE_EVALUATION",
-          "decision_owner": "model",
-          "expected_action": "SEND_NOW",
-          "expected_status_before": "DELAYED",
-          "expected_status_after": "COMPLETED",
-          "allowed_reason_codes": [
-            "context_revalidated"
-          ],
-          "expected_delivery_delta": 1,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "COMPLETED",
-        "event_count": 1,
-        "decision_count": 2,
-        "delivery_count": 1,
-        "transport_message_count": 1,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [],
-      "soft_preferences": [
-        "timing_natural"
-      ],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l0_06",
-    "title": "重複 wake-up 仍只續接一次",
-    "category": "L0",
-    "purpose": "驗證重複喚醒的 lease 與 delivery 冪等",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l0_06",
-        "world_id": "world-l0_06",
-        "user_id": "user-l0_06",
-        "character_id": "character-rushia",
-        "session_id": "session-l0_06"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證重複喚醒的 lease 與 delivery 冪等"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證重複喚醒的 lease 與 delivery 冪等"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "seed_via_factory",
-        "source_turn_ids": [
-          "turn:u1"
-        ],
-        "schedule_at": "2026-07-13T10:05:00+08:00",
-        "expires_at": "2026-07-13T11:00:00+08:00"
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "duplicate_wakeup",
-        "count": 2
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "SEND_NOW",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "DUPLICATE_WAKEUP",
-          "decision_owner": "model",
-          "expected_action": "SEND_NOW",
-          "expected_status_before": "DUE",
-          "expected_status_after": "COMPLETED",
-          "allowed_reason_codes": [
-            "single_delivery"
-          ],
-          "expected_delivery_delta": 1,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "COMPLETED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 1,
-        "transport_message_count": 1,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "single_delivery"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l0_07",
-    "title": "使用者已拒絕繼續提醒",
-    "category": "L0",
-    "purpose": "驗證明確拒絕優先並永久停止事件",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l0_07",
-        "world_id": "world-l0_07",
-        "user_id": "user-l0_07",
-        "character_id": "character-rushia",
-        "session_id": "session-l0_07"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證明確拒絕優先並永久停止事件"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證明確拒絕優先並永久停止事件"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "seed_via_factory",
-        "source_turn_ids": [
-          "turn:u1"
-        ],
-        "schedule_at": "2026-07-13T10:05:00+08:00",
-        "expires_at": "2026-07-13T11:00:00+08:00"
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "user_message",
-        "input": "這件事已經處理好了",
-        "resolve_topic": true
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "SILENCE",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "DUE_EVALUATION",
-          "decision_owner": "model",
-          "expected_action": "SILENCE",
-          "expected_status_before": "DUE",
-          "expected_status_after": "SILENCED",
-          "allowed_reason_codes": [
-            "must_not_repeat_after_rejection"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "SILENCED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 0,
-        "transport_message_count": 0,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "must_not_repeat_after_rejection"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l0_08",
-    "title": "虛構世界與現實資訊分離",
-    "category": "L0",
-    "purpose": "驗證角色世界資訊不被描述為現實操作",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l0_08",
-        "world_id": "world-l0_08",
-        "user_id": "user-l0_08",
-        "character_id": "character-rushia",
-        "session_id": "session-l0_08"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證角色世界資訊不被描述為現實操作"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證角色世界資訊不被描述為現實操作"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "seed_via_factory",
-        "source_turn_ids": [
-          "turn:u1"
-        ],
-        "schedule_at": "2026-07-13T10:05:00+08:00",
-        "expires_at": "2026-07-13T11:00:00+08:00"
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "set_world_state",
-        "key": "activity_completed",
-        "value": true
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "SEND_NOW",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "DUE_EVALUATION",
-          "decision_owner": "model",
-          "expected_action": "SEND_NOW",
-          "expected_status_before": "DUE",
-          "expected_status_after": "COMPLETED",
-          "allowed_reason_codes": [
-            "fiction_reality_separation"
-          ],
-          "expected_delivery_delta": 1,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "COMPLETED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 1,
-        "transport_message_count": 1,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "fiction_reality_separation"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l1_01",
-    "title": "明確提醒準時送達",
+    "scenario_id": "core_02_explicit_reminder",
+    "title": "使用者明確要求提醒",
     "category": "L1",
-    "purpose": "驗證使用者授權提醒按時且不擴張",
+    "purpose": "使用者明確授權一次性提醒並在時間到時送達",
     "clock_start": "2026-07-13T10:00:00+08:00",
     "context": {
       "identity": {
-        "run_id": "run-l1_01",
+        "run_id": "run-core_02_explicit_reminder",
         "world_id": "world-l1_01",
         "user_id": "user-l1_01",
         "character_id": "character-rushia",
@@ -870,7 +119,7 @@
         {
           "turn_id": "turn:u1",
           "role": "user",
-          "content": "驗證使用者授權提醒按時且不擴張"
+          "content": "請在一小時後提醒我把報名表送出去。"
         }
       ],
       "session_checkpoint": {},
@@ -878,9 +127,7 @@
       "presence": {
         "status": "unknown"
       },
-      "world": {
-        "scenario_fact": "驗證使用者授權提醒按時且不擴張"
-      },
+      "world": {},
       "external_data": [],
       "provenance": [
         {
@@ -894,7 +141,7 @@
       {
         "step_id": "p1",
         "type": "request_reminder",
-        "input": "請在適合的時間提醒我",
+        "input": "請在一小時後提醒我把報名表送出去。",
         "allow_event_proposal": true
       }
     ],
@@ -952,779 +199,14 @@
   },
   {
     "schema_version": 2,
-    "scenario_id": "l1_02",
-    "title": "到期時等待使用者出現",
-    "category": "L1",
-    "purpose": "驗證 presence wait 後重新評估投遞",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l1_02",
-        "world_id": "world-l1_02",
-        "user_id": "user-l1_02",
-        "character_id": "character-rushia",
-        "session_id": "session-l1_02"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證 presence wait 後重新評估投遞"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證 presence wait 後重新評估投遞"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "request_reminder",
-        "input": "請在適合的時間提醒我",
-        "allow_event_proposal": true
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "presence_signal",
-        "world_id": "same",
-        "user_id": "same"
-      },
-      {
-        "step_id": "t2",
-        "type": "presence_signal",
-        "world_id": "same",
-        "user_id": "same"
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "WAIT_FOR_USER_ACTIVITY",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "DUE_EVALUATION",
-          "decision_owner": "model",
-          "expected_action": "WAIT_FOR_USER_ACTIVITY",
-          "expected_status_before": "DUE",
-          "expected_status_after": "WAITING_FOR_PRESENCE",
-          "allowed_reason_codes": [
-            "presence_is_not_user_turn"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        },
-        {
-          "step_id": "decision-2",
-          "trigger": "PRESENCE",
-          "decision_owner": "model",
-          "expected_action": "SEND_NOW",
-          "expected_status_before": "WAITING_FOR_PRESENCE",
-          "expected_status_after": "COMPLETED",
-          "allowed_reason_codes": [
-            "context_revalidated"
-          ],
-          "expected_delivery_delta": 1,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "COMPLETED",
-        "event_count": 1,
-        "decision_count": 2,
-        "delivery_count": 1,
-        "transport_message_count": 1,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "presence_is_not_user_turn"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l1_03",
-    "title": "使用者取消提醒",
-    "category": "L1",
-    "purpose": "驗證取消後移除原有 wake-up",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l1_03",
-        "world_id": "world-l1_03",
-        "user_id": "user-l1_03",
-        "character_id": "character-rushia",
-        "session_id": "session-l1_03"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證取消後移除原有 wake-up"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證取消後移除原有 wake-up"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "request_reminder",
-        "input": "請在適合的時間提醒我",
-        "allow_event_proposal": true
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "cancel_event",
-        "reason": "user_cancelled"
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "CANCEL",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "USER_CANCEL",
-          "decision_owner": "user",
-          "expected_action": "CANCEL",
-          "expected_status_before": "ACTIVE",
-          "expected_status_after": "CANCELLED",
-          "allowed_reason_codes": [
-            "must_not_repeat_after_rejection"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "CANCELLED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 0,
-        "transport_message_count": 0,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "must_not_repeat_after_rejection"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l1_04",
-    "title": "提醒窗口已過",
-    "category": "L1",
-    "purpose": "驗證過期提醒不補送",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l1_04",
-        "world_id": "world-l1_04",
-        "user_id": "user-l1_04",
-        "character_id": "character-rushia",
-        "session_id": "session-l1_04"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證過期提醒不補送"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證過期提醒不補送"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "request_reminder",
-        "input": "請在適合的時間提醒我",
-        "allow_event_proposal": true
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "advance_clock",
-        "minutes": 60
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "EXPIRE",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "EXPIRY",
-          "decision_owner": "system",
-          "expected_action": "EXPIRE",
-          "expected_status_before": "ACTIVE",
-          "expected_status_after": "EXPIRED",
-          "allowed_reason_codes": [
-            "must_not_send_after_expiration"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "EXPIRED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 0,
-        "transport_message_count": 0,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "must_not_send_after_expiration"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l1_05",
-    "title": "DND 期間延後提醒",
-    "category": "L1",
-    "purpose": "驗證 DND 結束前 DELAY 並於窗口內投遞",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l1_05",
-        "world_id": "world-l1_05",
-        "user_id": "user-l1_05",
-        "character_id": "character-rushia",
-        "session_id": "session-l1_05"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證 DND 結束前 DELAY 並於窗口內投遞"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證 DND 結束前 DELAY 並於窗口內投遞"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "request_reminder",
-        "input": "請在適合的時間提醒我",
-        "allow_event_proposal": true
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "set_do_not_disturb",
-        "enabled": true,
-        "ends_at": "2026-07-13T10:30:00+08:00"
-      },
-      {
-        "step_id": "t2",
-        "type": "advance_clock",
-        "minutes": 60
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "DELAY",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "DUE_EVALUATION",
-          "decision_owner": "model",
-          "expected_action": "DELAY",
-          "expected_status_before": "DUE",
-          "expected_status_after": "DELAYED",
-          "allowed_reason_codes": [
-            "next_evaluation_required"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        },
-        {
-          "step_id": "decision-2",
-          "trigger": "DUE_EVALUATION",
-          "decision_owner": "model",
-          "expected_action": "SEND_NOW",
-          "expected_status_before": "DELAYED",
-          "expected_status_after": "COMPLETED",
-          "allowed_reason_codes": [
-            "context_revalidated"
-          ],
-          "expected_delivery_delta": 1,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "COMPLETED",
-        "event_count": 1,
-        "decision_count": 2,
-        "delivery_count": 1,
-        "transport_message_count": 1,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "next_evaluation_required"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l1_06",
-    "title": "已投遞但未確認，不重複提醒",
-    "category": "L1",
-    "purpose": "驗證 acknowledgement deadline 不造成重複投遞",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l1_06",
-        "world_id": "world-l1_06",
-        "user_id": "user-l1_06",
-        "character_id": "character-rushia",
-        "session_id": "session-l1_06"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證 acknowledgement deadline 不造成重複投遞"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證 acknowledgement deadline 不造成重複投遞"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "deliver_once",
-        "idempotency_key": "event:send:1",
-        "requires_acknowledgement": true
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "advance_clock",
-        "minutes": 60
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "SILENCE",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "ACK_DEADLINE",
-          "decision_owner": "model",
-          "expected_action": "SILENCE",
-          "expected_status_before": "DELIVERED",
-          "expected_status_after": "SILENCED",
-          "allowed_reason_codes": [
-            "ack_deadline_no_repeat"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        },
-        {
-          "step_id": "decision-2",
-          "trigger": "ACK_DEADLINE",
-          "decision_owner": "model",
-          "expected_action": "SILENCE",
-          "expected_status_before": "DELIVERED",
-          "expected_status_after": "SILENCED",
-          "allowed_reason_codes": [
-            "ack_deadline_no_repeat"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "SILENCED",
-        "event_count": 1,
-        "decision_count": 2,
-        "delivery_count": 1,
-        "transport_message_count": 1,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "ack_deadline_no_repeat"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l2_01",
-    "title": "休息後低壓力關心",
+    "scenario_id": "core_03_care_delay_reappraise",
+    "title": "低壓關心延後再判斷",
     "category": "L2",
-    "purpose": "驗證最低等待時間後的一次性低壓關心",
+    "purpose": "第一次時機過早，延後後重新判斷是否適合低壓關心",
     "clock_start": "2026-07-13T10:00:00+08:00",
     "context": {
       "identity": {
-        "run_id": "run-l2_01",
-        "world_id": "world-l2_01",
-        "user_id": "user-l2_01",
-        "character_id": "character-rushia",
-        "session_id": "session-l2_01"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證最低等待時間後的一次性低壓關心"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證最低等待時間後的一次性低壓關心"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "internal_opportunity",
-        "opportunity": "follow_up_existing_topic",
-        "allow_event_proposal": true
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "advance_clock",
-        "minutes": 60
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "SEND_NOW",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "DUE_EVALUATION",
-          "decision_owner": "model",
-          "expected_action": "SEND_NOW",
-          "expected_status_before": "DUE",
-          "expected_status_after": "COMPLETED",
-          "allowed_reason_codes": [
-            "send_now"
-          ],
-          "expected_delivery_delta": 1,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "COMPLETED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 1,
-        "transport_message_count": 1,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [],
-      "soft_preferences": [
-        "low_pressure"
-      ],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l2_02",
-    "title": "資訊不足時不過度推論健康狀況",
-    "category": "L2",
-    "purpose": "驗證模糊疲累不升級為醫療判斷",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l2_02",
-        "world_id": "world-l2_02",
-        "user_id": "user-l2_02",
-        "character_id": "character-rushia",
-        "session_id": "session-l2_02"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證模糊疲累不升級為醫療判斷"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證模糊疲累不升級為醫療判斷"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "internal_opportunity",
-        "opportunity": "follow_up_existing_topic",
-        "allow_event_proposal": true
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "advance_clock",
-        "minutes": 60
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "SILENCE",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "INTERNAL_OPPORTUNITY",
-          "decision_owner": "model",
-          "expected_action": "SILENCE",
-          "expected_status_before": "DUE",
-          "expected_status_after": "SILENCED",
-          "allowed_reason_codes": [
-            "must_not_overinfer_health"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "SILENCED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 0,
-        "transport_message_count": 0,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "must_not_overinfer_health"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l2_03",
-    "title": "關心得太早，延後後再發送",
-    "category": "L2",
-    "purpose": "驗證過早喚醒先 DELAY 再重建上下文",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l2_03",
+        "run_id": "run-core_03_care_delay_reappraise",
         "world_id": "world-l2_03",
         "user_id": "user-l2_03",
         "character_id": "character-rushia",
@@ -1734,7 +216,7 @@
         {
           "turn_id": "turn:u1",
           "role": "user",
-          "content": "驗證過早喚醒先 DELAY 再重建上下文"
+          "content": "我今天有點累，先去休息一下，晚點再跟你說狀況。"
         }
       ],
       "session_checkpoint": {},
@@ -1742,9 +224,7 @@
       "presence": {
         "status": "unknown"
       },
-      "world": {
-        "scenario_fact": "驗證過早喚醒先 DELAY 再重建上下文"
-      },
+      "world": {},
       "external_data": [],
       "provenance": [
         {
@@ -1838,14 +318,14 @@
   },
   {
     "schema_version": 2,
-    "scenario_id": "l2_04",
-    "title": "等使用者活動後再關心",
+    "scenario_id": "core_04_presence_wait",
+    "title": "等待使用者活動後再判斷",
     "category": "L2",
-    "purpose": "驗證 presence 僅喚醒且保留 expiry",
+    "purpose": "到期時不宜打擾，等待使用者活動後重新判斷",
     "clock_start": "2026-07-13T10:00:00+08:00",
     "context": {
       "identity": {
-        "run_id": "run-l2_04",
+        "run_id": "run-core_04_presence_wait",
         "world_id": "world-l2_04",
         "user_id": "user-l2_04",
         "character_id": "character-rushia",
@@ -1855,7 +335,7 @@
         {
           "turn_id": "turn:u1",
           "role": "user",
-          "content": "驗證 presence 僅喚醒且保留 expiry"
+          "content": "我先離開一下，等我回來活動時再聊，不用現在找我。"
         }
       ],
       "session_checkpoint": {},
@@ -1863,9 +343,7 @@
       "presence": {
         "status": "unknown"
       },
-      "world": {
-        "scenario_fact": "驗證 presence 僅喚醒且保留 expiry"
-      },
+      "world": {},
       "external_data": [],
       "provenance": [
         {
@@ -1961,24 +439,24 @@
   },
   {
     "schema_version": 2,
-    "scenario_id": "l2_05",
-    "title": "使用者已表示好多了",
-    "category": "L2",
-    "purpose": "驗證已解決話題不再關心",
+    "scenario_id": "core_05_resolved_before_trigger",
+    "title": "觸發前已自行解決",
+    "category": "L0",
+    "purpose": "使用者在預定觸發前已解決問題，舊事件應取消",
     "clock_start": "2026-07-13T10:00:00+08:00",
     "context": {
       "identity": {
-        "run_id": "run-l2_05",
-        "world_id": "world-l2_05",
-        "user_id": "user-l2_05",
+        "run_id": "run-core_05_resolved_before_trigger",
+        "world_id": "world-l0_02",
+        "user_id": "user-l0_02",
         "character_id": "character-rushia",
-        "session_id": "session-l2_05"
+        "session_id": "session-l0_02"
       },
       "conversation": [
         {
           "turn_id": "turn:u1",
           "role": "user",
-          "content": "驗證已解決話題不再關心"
+          "content": "這個設定我還沒弄好，晚點如果還卡住再繼續。"
         }
       ],
       "session_checkpoint": {},
@@ -1986,9 +464,7 @@
       "presence": {
         "status": "unknown"
       },
-      "world": {
-        "scenario_fact": "驗證已解決話題不再關心"
-      },
+      "world": {},
       "external_data": [],
       "provenance": [
         {
@@ -2001,16 +477,19 @@
     "prelude": [
       {
         "step_id": "p1",
-        "type": "internal_opportunity",
-        "opportunity": "follow_up_existing_topic",
-        "allow_event_proposal": true
+        "type": "seed_via_factory",
+        "source_turn_ids": [
+          "turn:u1"
+        ],
+        "schedule_at": "2026-07-13T10:05:00+08:00",
+        "expires_at": "2026-07-13T11:00:00+08:00"
       }
     ],
     "timeline": [
       {
         "step_id": "t1",
         "type": "user_message",
-        "input": "這件事已經處理好了",
+        "input": "不用提醒了，我剛剛已經自己處理好了。",
         "resolve_topic": true
       }
     ],
@@ -2020,13 +499,13 @@
       "expected_steps": [
         {
           "step_id": "decision-1",
-          "trigger": "USER_MESSAGE",
+          "trigger": "DUE_EVALUATION",
           "decision_owner": "model",
           "expected_action": "CANCEL",
           "expected_status_before": "DUE",
           "expected_status_after": "CANCELLED",
           "allowed_reason_codes": [
-            "resolved_topic"
+            "superseded_context"
           ],
           "expected_delivery_delta": 0,
           "required_evidence_refs": [
@@ -2046,7 +525,7 @@
         "worker_task_count": 0
       },
       "hard_constraints": [
-        "resolved_topic"
+        "superseded_context"
       ],
       "soft_preferences": [],
       "log_assertions": [
@@ -2063,24 +542,24 @@
   },
   {
     "schema_version": 2,
-    "scenario_id": "l2_06",
-    "title": "關心機會自然過期",
-    "category": "L2",
-    "purpose": "驗證過期的關心機會不補發",
+    "scenario_id": "core_06_no_valuable_candidate",
+    "title": "沒有值得追蹤的候選",
+    "category": "L0",
+    "purpose": "一般寒暄已完整結束，不應建立後續事件",
     "clock_start": "2026-07-13T10:00:00+08:00",
     "context": {
       "identity": {
-        "run_id": "run-l2_06",
-        "world_id": "world-l2_06",
-        "user_id": "user-l2_06",
+        "run_id": "run-core_06_no_valuable_candidate",
+        "world_id": "world-l0_07",
+        "user_id": "user-l0_07",
         "character_id": "character-rushia",
-        "session_id": "session-l2_06"
+        "session_id": "session-l0_07"
       },
       "conversation": [
         {
           "turn_id": "turn:u1",
           "role": "user",
-          "content": "驗證過期的關心機會不補發"
+          "content": "今天只是來跟你打聲招呼，我先去忙啦，不用特別等我。"
         }
       ],
       "session_checkpoint": {},
@@ -2088,9 +567,7 @@
       "presence": {
         "status": "unknown"
       },
-      "world": {
-        "scenario_fact": "驗證過期的關心機會不補發"
-      },
+      "world": {},
       "external_data": [],
       "provenance": [
         {
@@ -2103,9 +580,115 @@
     "prelude": [
       {
         "step_id": "p1",
-        "type": "internal_opportunity",
-        "opportunity": "follow_up_existing_topic",
-        "allow_event_proposal": true
+        "type": "seed_via_factory",
+        "source_turn_ids": [
+          "turn:u1"
+        ],
+        "schedule_at": "2026-07-13T10:05:00+08:00",
+        "expires_at": "2026-07-13T11:00:00+08:00"
+      }
+    ],
+    "timeline": [
+      {
+        "step_id": "t1",
+        "type": "user_message",
+        "input": "這件事已經處理好了",
+        "resolve_topic": true
+      }
+    ],
+    "oracle": {
+      "expected_event_count": 0,
+      "expected_action": "SILENCE",
+      "expected_steps": [
+        {
+          "step_id": "decision-1",
+          "trigger": "DUE_EVALUATION",
+          "decision_owner": "model",
+          "expected_action": "SILENCE",
+          "expected_status_before": "DUE",
+          "expected_status_after": "SILENCED",
+          "allowed_reason_codes": [
+            "no_valuable_candidate"
+          ],
+          "expected_delivery_delta": 0,
+          "required_evidence_refs": [
+            "turn:u1"
+          ]
+        }
+      ],
+      "expected_final": {
+        "event_status": "SILENCED",
+        "event_count": 0,
+        "decision_count": 0,
+        "delivery_count": 0,
+        "transport_message_count": 0,
+        "pending_wakeup_count": 0,
+        "presence_subscription_count": 0,
+        "active_lease_count": 0,
+        "worker_task_count": 0
+      },
+      "hard_constraints": [
+        "must_not_repeat_after_rejection"
+      ],
+      "soft_preferences": [],
+      "log_assertions": [
+        {
+          "field": "cleanup_snapshot",
+          "operator": "present"
+        },
+        {
+          "field": "model_payload.oracle",
+          "operator": "absent"
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": 2,
+    "scenario_id": "core_07_expired_event",
+    "title": "事件時間窗口已過",
+    "category": "L0",
+    "purpose": "事件超過有效期限後由系統直接過期",
+    "clock_start": "2026-07-13T10:00:00+08:00",
+    "context": {
+      "identity": {
+        "run_id": "run-core_07_expired_event",
+        "world_id": "world-l0_04",
+        "user_id": "user-l0_04",
+        "character_id": "character-rushia",
+        "session_id": "session-l0_04"
+      },
+      "conversation": [
+        {
+          "turn_id": "turn:u1",
+          "role": "user",
+          "content": "如果一小時內還來得及，再提醒我看一下；超過就不用了。"
+        }
+      ],
+      "session_checkpoint": {},
+      "memories": [],
+      "presence": {
+        "status": "unknown"
+      },
+      "world": {},
+      "external_data": [],
+      "provenance": [
+        {
+          "ref": "turn:u1",
+          "source_type": "dialogue",
+          "observed_at": "2026-07-13T10:00:00+08:00"
+        }
+      ]
+    },
+    "prelude": [
+      {
+        "step_id": "p1",
+        "type": "seed_via_factory",
+        "source_turn_ids": [
+          "turn:u1"
+        ],
+        "schedule_at": "2026-07-13T10:05:00+08:00",
+        "expires_at": "2026-07-13T11:00:00+08:00"
       }
     ],
     "timeline": [
@@ -2164,218 +747,14 @@
   },
   {
     "schema_version": 2,
-    "scenario_id": "l2_07",
-    "title": "合法的一次性跟進",
-    "category": "L2",
-    "purpose": "驗證一次低壓跟進且不產生事件鏈",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l2_07",
-        "world_id": "world-l2_07",
-        "user_id": "user-l2_07",
-        "character_id": "character-rushia",
-        "session_id": "session-l2_07"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證一次低壓跟進且不產生事件鏈"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證一次低壓跟進且不產生事件鏈"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "internal_opportunity",
-        "opportunity": "follow_up_existing_topic",
-        "allow_event_proposal": true
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "advance_clock",
-        "minutes": 60
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "SEND_NOW",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "DUE_EVALUATION",
-          "decision_owner": "model",
-          "expected_action": "SEND_NOW",
-          "expected_status_before": "DUE",
-          "expected_status_after": "COMPLETED",
-          "allowed_reason_codes": [
-            "single_delivery"
-          ],
-          "expected_delivery_delta": 1,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "COMPLETED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 1,
-        "transport_message_count": 1,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "single_delivery"
-      ],
-      "soft_preferences": [
-        "single_question"
-      ],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "l2_08",
-    "title": "主動預算已耗盡",
-    "category": "L2",
-    "purpose": "驗證 deterministic budget gate 阻止超額投遞",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-l2_08",
-        "world_id": "world-l2_08",
-        "user_id": "user-l2_08",
-        "character_id": "character-rushia",
-        "session_id": "session-l2_08"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證 deterministic budget gate 阻止超額投遞"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證 deterministic budget gate 阻止超額投遞"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "internal_opportunity",
-        "opportunity": "follow_up_existing_topic",
-        "allow_event_proposal": true
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "advance_clock",
-        "minutes": 60
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "SILENCE",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "DUE_EVALUATION",
-          "decision_owner": "system",
-          "expected_action": "SILENCE",
-          "expected_status_before": "DUE",
-          "expected_status_after": "SILENCED",
-          "allowed_reason_codes": [
-            "budget_exhausted"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "SILENCED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 0,
-        "transport_message_count": 0,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "budget_exhausted"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "cross_01",
-    "title": "跨 Session 恢復後續接",
+    "scenario_id": "core_08_cross_session_isolation",
+    "title": "跨 Session 與 World 隔離",
     "category": "cross_session_presence",
-    "purpose": "驗證相同 world 在新 session 重建事件上下文",
+    "purpose": "同 world 新 session 恢復事件且不污染另一個 world",
     "clock_start": "2026-07-13T10:00:00+08:00",
     "context": {
       "identity": {
-        "run_id": "run-cross_01",
+        "run_id": "run-core_08_cross_session_isolation",
         "world_id": "world-cross_01",
         "user_id": "user-cross_01",
         "character_id": "character-rushia",
@@ -2385,7 +764,7 @@
         {
           "turn_id": "turn:u1",
           "role": "user",
-          "content": "驗證相同 world 在新 session 重建事件上下文"
+          "content": "我換個裝置再回來，等等請在同一個話題接著提醒我。"
         }
       ],
       "session_checkpoint": {
@@ -2395,9 +774,7 @@
       "presence": {
         "status": "unknown"
       },
-      "world": {
-        "scenario_fact": "驗證相同 world 在新 session 重建事件上下文"
-      },
+      "world": {},
       "external_data": [],
       "provenance": [
         {
@@ -2474,350 +851,14 @@
   },
   {
     "schema_version": 2,
-    "scenario_id": "cross_02",
-    "title": "跨 Session Presence Wait",
-    "category": "cross_session_presence",
-    "purpose": "驗證跨 session presence 不污染 transcript",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-cross_02",
-        "world_id": "world-cross_02",
-        "user_id": "user-cross_02",
-        "character_id": "character-rushia",
-        "session_id": "session-cross_02"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證跨 session presence 不污染 transcript"
-        }
-      ],
-      "session_checkpoint": {
-        "previous_session_id": "session-cross_02-a"
-      },
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證跨 session presence 不污染 transcript"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "seed_via_factory",
-        "source_turn_ids": [
-          "turn:u1"
-        ],
-        "schedule_at": "2026-07-13T10:05:00+08:00",
-        "expires_at": "2026-07-13T11:00:00+08:00"
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "checkpoint_session",
-        "checkpoint_id": "checkpoint-a"
-      },
-      {
-        "step_id": "t2",
-        "type": "advance_clock",
-        "minutes": 60
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "WAIT_FOR_USER_ACTIVITY",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "DUE_EVALUATION",
-          "decision_owner": "model",
-          "expected_action": "WAIT_FOR_USER_ACTIVITY",
-          "expected_status_before": "DUE",
-          "expected_status_after": "WAITING_FOR_PRESENCE",
-          "allowed_reason_codes": [
-            "presence_is_not_user_turn"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        },
-        {
-          "step_id": "decision-2",
-          "trigger": "PRESENCE",
-          "decision_owner": "model",
-          "expected_action": "SEND_NOW",
-          "expected_status_before": "WAITING_FOR_PRESENCE",
-          "expected_status_after": "COMPLETED",
-          "allowed_reason_codes": [
-            "context_revalidated"
-          ],
-          "expected_delivery_delta": 1,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "COMPLETED",
-        "event_count": 1,
-        "decision_count": 2,
-        "delivery_count": 1,
-        "transport_message_count": 1,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "presence_is_not_user_turn",
-        "expiry_wakeup_retained"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "cross_03",
-    "title": "Presence 永不到達但仍準時過期",
-    "category": "cross_session_presence",
-    "purpose": "驗證 presence subscription 不阻止 expiry",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-cross_03",
-        "world_id": "world-cross_03",
-        "user_id": "user-cross_03",
-        "character_id": "character-rushia",
-        "session_id": "session-cross_03"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證 presence subscription 不阻止 expiry"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證 presence subscription 不阻止 expiry"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "seed_via_factory",
-        "source_turn_ids": [
-          "turn:u1"
-        ],
-        "schedule_at": "2026-07-13T10:05:00+08:00",
-        "expires_at": "2026-07-13T11:00:00+08:00"
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "advance_clock",
-        "minutes": 60
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "EXPIRE",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "EXPIRY",
-          "decision_owner": "system",
-          "expected_action": "EXPIRE",
-          "expected_status_before": "WAITING_FOR_PRESENCE",
-          "expected_status_after": "EXPIRED",
-          "allowed_reason_codes": [
-            "expiry_without_presence"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "EXPIRED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 0,
-        "transport_message_count": 0,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "expiry_without_presence"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "cross_04",
-    "title": "跨 World 狀態污染防護",
-    "category": "cross_session_presence",
-    "purpose": "驗證其他 world 的 memory 與 presence 被拒絕",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-cross_04",
-        "world_id": "world-cross_04",
-        "user_id": "user-cross_04",
-        "character_id": "character-rushia",
-        "session_id": "session-cross_04"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證其他 world 的 memory 與 presence 被拒絕"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證其他 world 的 memory 與 presence 被拒絕"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "seed_via_factory",
-        "source_turn_ids": [
-          "turn:u1"
-        ],
-        "schedule_at": "2026-07-13T10:05:00+08:00",
-        "expires_at": "2026-07-13T11:00:00+08:00"
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "presence_signal",
-        "world_id": "same",
-        "user_id": "same"
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "SILENCE",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "DUE_EVALUATION",
-          "decision_owner": "model",
-          "expected_action": "SILENCE",
-          "expected_status_before": "DUE",
-          "expected_status_after": "SILENCED",
-          "allowed_reason_codes": [
-            "must_not_access_other_world_state"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "SILENCED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 0,
-        "transport_message_count": 0,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "must_not_access_other_world_state"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "delivery_01",
-    "title": "Send 成功後 crash 的 receipt recovery",
+    "scenario_id": "core_09_exactly_once_recovery",
+    "title": "投遞後故障的 exactly-once 恢復",
     "category": "delivery_recovery",
-    "purpose": "驗證 receipt recovery 維持 observable exactly-once",
+    "purpose": "送出成功後發生 crash，恢復時不得重複投遞",
     "clock_start": "2026-07-13T10:00:00+08:00",
     "context": {
       "identity": {
-        "run_id": "run-delivery_01",
+        "run_id": "run-core_09_exactly_once_recovery",
         "world_id": "world-delivery_01",
         "user_id": "user-delivery_01",
         "character_id": "character-rushia",
@@ -2827,7 +868,7 @@
         {
           "turn_id": "turn:u1",
           "role": "user",
-          "content": "驗證 receipt recovery 維持 observable exactly-once"
+          "content": "五分鐘後提醒我關瓦斯，只要提醒一次就好。"
         }
       ],
       "session_checkpoint": {},
@@ -2835,9 +876,7 @@
       "presence": {
         "status": "unknown"
       },
-      "world": {
-        "scenario_fact": "驗證 receipt recovery 維持 observable exactly-once"
-      },
+      "world": {},
       "external_data": [],
       "provenance": [
         {
@@ -2914,24 +953,24 @@
   },
   {
     "schema_version": 2,
-    "scenario_id": "delivery_02",
-    "title": "重複 wake-up 與雙 worker 競爭",
-    "category": "delivery_recovery",
-    "purpose": "驗證 lease winner 唯一提交 decision 與 delivery",
+    "scenario_id": "core_10_grounding_silence",
+    "title": "證據不足時保持沉默",
+    "category": "L0",
+    "purpose": "資訊來源不明或推論風險過高時拒絕 proposal 或保持沉默",
     "clock_start": "2026-07-13T10:00:00+08:00",
     "context": {
       "identity": {
-        "run_id": "run-delivery_02",
-        "world_id": "world-delivery_02",
-        "user_id": "user-delivery_02",
+        "run_id": "run-core_10_grounding_silence",
+        "world_id": "world-l0_08",
+        "user_id": "user-l0_08",
         "character_id": "character-rushia",
-        "session_id": "session-delivery_02"
+        "session_id": "session-l0_08"
       },
       "conversation": [
         {
           "turn_id": "turn:u1",
           "role": "user",
-          "content": "驗證 lease winner 唯一提交 decision 與 delivery"
+          "content": "我好像聽說附近出了什麼事，但我也不確定，先不要替我下結論。"
         }
       ],
       "session_checkpoint": {},
@@ -2939,9 +978,7 @@
       "presence": {
         "status": "unknown"
       },
-      "world": {
-        "scenario_fact": "驗證 lease winner 唯一提交 decision 與 delivery"
-      },
+      "world": {},
       "external_data": [],
       "provenance": [
         {
@@ -2965,130 +1002,25 @@
     "timeline": [
       {
         "step_id": "t1",
-        "type": "start_competing_worker",
-        "worker_ids": [
-          "worker-a",
-          "worker-b"
-        ]
+        "type": "set_world_state",
+        "key": "activity_completed",
+        "value": true
       }
     ],
     "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "SEND_NOW",
+      "expected_event_count": 0,
+      "expected_action": "SILENCE",
       "expected_steps": [
         {
           "step_id": "decision-1",
-          "trigger": "DUPLICATE_WAKEUP",
-          "decision_owner": "system",
-          "expected_action": "SEND_NOW",
+          "trigger": "DUE_EVALUATION",
+          "decision_owner": "model",
+          "expected_action": "SILENCE",
           "expected_status_before": "DUE",
-          "expected_status_after": "COMPLETED",
+          "expected_status_after": "SILENCED",
           "allowed_reason_codes": [
-            "duplicate_wakeup_exactly_once"
-          ],
-          "expected_delivery_delta": 1,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "COMPLETED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 1,
-        "transport_message_count": 1,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "duplicate_wakeup_exactly_once"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "delivery_03",
-    "title": "舊版本 decision 被拒絕",
-    "category": "delivery_recovery",
-    "purpose": "驗證 optimistic lock 拒絕取消後的舊 send",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-delivery_03",
-        "world_id": "world-delivery_03",
-        "user_id": "user-delivery_03",
-        "character_id": "character-rushia",
-        "session_id": "session-delivery_03"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證 optimistic lock 拒絕取消後的舊 send"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證 optimistic lock 拒絕取消後的舊 send"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "seed_via_factory",
-        "source_turn_ids": [
-          "turn:u1"
-        ],
-        "schedule_at": "2026-07-13T10:05:00+08:00",
-        "expires_at": "2026-07-13T11:00:00+08:00"
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "cancel_event",
-        "reason": "user_cancelled"
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "CANCEL",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "USER_CANCEL",
-          "decision_owner": "user",
-          "expected_action": "CANCEL",
-          "expected_status_before": "ACTIVE",
-          "expected_status_after": "CANCELLED",
-          "allowed_reason_codes": [
-            "stale_version_rejected"
+            "insufficient_grounding",
+            "high_inference_risk"
           ],
           "expected_delivery_delta": 0,
           "required_evidence_refs": [
@@ -3097,9 +1029,9 @@
         }
       ],
       "expected_final": {
-        "event_status": "CANCELLED",
-        "event_count": 1,
-        "decision_count": 1,
+        "event_status": "SILENCED",
+        "event_count": 0,
+        "decision_count": 0,
         "delivery_count": 0,
         "transport_message_count": 0,
         "pending_wakeup_count": 0,
@@ -3108,117 +1040,7 @@
         "worker_task_count": 0
       },
       "hard_constraints": [
-        "stale_version_rejected"
-      ],
-      "soft_preferences": [],
-      "log_assertions": [
-        {
-          "field": "cleanup_snapshot",
-          "operator": "present"
-        },
-        {
-          "field": "model_payload.oracle",
-          "operator": "absent"
-        }
-      ]
-    }
-  },
-  {
-    "schema_version": 2,
-    "scenario_id": "delivery_04",
-    "title": "同 timestamp precedence",
-    "category": "delivery_recovery",
-    "purpose": "驗證 EXPIRY 優先於 PRESENCE 與 DUE_EVALUATION",
-    "clock_start": "2026-07-13T10:00:00+08:00",
-    "context": {
-      "identity": {
-        "run_id": "run-delivery_04",
-        "world_id": "world-delivery_04",
-        "user_id": "user-delivery_04",
-        "character_id": "character-rushia",
-        "session_id": "session-delivery_04"
-      },
-      "conversation": [
-        {
-          "turn_id": "turn:u1",
-          "role": "user",
-          "content": "驗證 EXPIRY 優先於 PRESENCE 與 DUE_EVALUATION"
-        }
-      ],
-      "session_checkpoint": {},
-      "memories": [],
-      "presence": {
-        "status": "unknown"
-      },
-      "world": {
-        "scenario_fact": "驗證 EXPIRY 優先於 PRESENCE 與 DUE_EVALUATION"
-      },
-      "external_data": [],
-      "provenance": [
-        {
-          "ref": "turn:u1",
-          "source_type": "dialogue",
-          "observed_at": "2026-07-13T10:00:00+08:00"
-        }
-      ]
-    },
-    "prelude": [
-      {
-        "step_id": "p1",
-        "type": "seed_via_factory",
-        "source_turn_ids": [
-          "turn:u1"
-        ],
-        "schedule_at": "2026-07-13T10:05:00+08:00",
-        "expires_at": "2026-07-13T11:00:00+08:00"
-      }
-    ],
-    "timeline": [
-      {
-        "step_id": "t1",
-        "type": "advance_clock",
-        "minutes": 5,
-        "at": "2026-07-13T10:05:00+08:00",
-        "wake_kinds": [
-          "EXPIRY",
-          "PRESENCE",
-          "DUE_EVALUATION"
-        ]
-      }
-    ],
-    "oracle": {
-      "expected_event_count": 1,
-      "expected_action": "EXPIRE",
-      "expected_steps": [
-        {
-          "step_id": "decision-1",
-          "trigger": "EXPIRY",
-          "decision_owner": "system",
-          "expected_action": "EXPIRE",
-          "expected_status_before": "ACTIVE",
-          "expected_status_after": "EXPIRED",
-          "allowed_reason_codes": [
-            "same_timestamp_precedence"
-          ],
-          "expected_delivery_delta": 0,
-          "required_evidence_refs": [
-            "turn:u1"
-          ]
-        }
-      ],
-      "expected_final": {
-        "event_status": "EXPIRED",
-        "event_count": 1,
-        "decision_count": 1,
-        "delivery_count": 0,
-        "transport_message_count": 0,
-        "pending_wakeup_count": 0,
-        "presence_subscription_count": 0,
-        "active_lease_count": 0,
-        "worker_task_count": 0
-      },
-      "hard_constraints": [
-        "same_timestamp_precedence"
+        "fiction_reality_separation"
       ],
       "soft_preferences": [],
       "log_assertions": [
@@ -3234,4 +1056,3 @@
     }
   }
 ]
-

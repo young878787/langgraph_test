@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from dataclasses import replace
+import json
 from pathlib import Path
 import sys
 import types
@@ -16,11 +18,9 @@ if "agent" not in sys.modules:
 from agent.initiative.clock import FakeClock  # noqa: E402
 from agent.initiative.domain import EventStatus, InitiativeAction, IsolationIdentity  # noqa: E402
 from agent.initiative.scenario_runner_v02 import (  # noqa: E402
-    LivePolicyError,
     PolicyDecision,
     ScenarioRunnerV02,
     SequencePolicy,
-    run_scenarios,
 )
 from agent.initiative.runtime import WakeKind  # noqa: E402
 from agent.initiative.scenario import load_scenarios  # noqa: E402
@@ -57,25 +57,10 @@ class InitiativeScenarioRunnerVerticalSlices(unittest.IsolatedAsyncioTestCase):
         )
         return {item.model.scenario_id: item for item in fixtures}
 
-    async def test_all_30_deterministic_fixtures_reach_expected_final(self) -> None:
-        fixtures = load_scenarios(ROOT / "tests" / "fixtures" / "initiative_v02" / "core_scenarios.json")
-        results = await run_scenarios(fixtures)
-        self.assertEqual(len(results), 30)
-        for fixture, result in zip(fixtures, results):
-            with self.subTest(scenario=fixture.model.scenario_id):
-                expected = fixture.oracle.expected_final
-                actual = result.to_mapping()
-                self.assertEqual(actual["event_status"], expected.event_status)
-                self.assertEqual(actual["event_count"], expected.event_count)
-                self.assertEqual(actual["decision_count"], expected.decision_count)
-                self.assertEqual(actual["delivery_count"], expected.delivery_count)
-                self.assertEqual(actual["transport_message_count"], expected.transport_message_count)
-                self.assertEqual(actual["cleanup_snapshot"], {
-                    "pending_wakeup_count": expected.pending_wakeup_count,
-                    "presence_subscription_count": expected.presence_subscription_count,
-                    "active_lease_count": expected.active_lease_count,
-                    "worker_task_count": expected.worker_task_count,
-                })
+    async def test_fixture_replay_has_no_deterministic_oracle_fallback(self) -> None:
+        fixture = self.fixtures_by_id()["core_01_commitment_followup"]
+        with self.assertRaisesRegex(ValueError, "live-model-only"):
+            await ScenarioRunnerV02.run_fixture(fixture)
 
     async def test_l0_01_event_first_send_completes_and_cleans_up(self) -> None:
         runner = make_runner(PolicyDecision(InitiativeAction.SEND_NOW, "promise_due"))
@@ -123,6 +108,31 @@ class InitiativeScenarioRunnerVerticalSlices(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.transport_message_count, 1)
         self.assertEqual(result.cleanup.presence_subscription_count, 0)
 
+    async def test_driver_drains_event_due_before_later_external_clock_step(self) -> None:
+        fixture = self.fixtures_by_id()["core_01_commitment_followup"]
+        runner = make_runner(PolicyDecision(InitiativeAction.SEND_NOW, "context_due"))
+        create(runner)
+
+        await runner._execute_driver_lifecycle(fixture)
+        result = await runner.finish()
+
+        self.assertEqual(runner.event.status, EventStatus.COMPLETED)
+        self.assertEqual(result.traces[0].logical_time, NOW + timedelta(minutes=5))
+
+    async def test_timeline_user_message_runs_dialogue_hook_before_reappraisal(self) -> None:
+        fixture = self.fixtures_by_id()["core_05_resolved_before_trigger"]
+        runner = make_runner(PolicyDecision(InitiativeAction.CANCEL, "resolved"))
+        create(runner)
+        seen = []
+
+        await runner._execute_driver_lifecycle(
+            fixture,
+            process_dialogue_turn=lambda step_id, text: seen.append((step_id, text)),
+        )
+
+        self.assertEqual(seen, [("t1", "不用提醒了，我剛剛已經自己處理好了。")])
+        self.assertEqual(runner.event.status, EventStatus.CANCELLED)
+
     async def test_delivery_01_receipt_recovery_is_exactly_once(self) -> None:
         runner = make_runner(PolicyDecision(InitiativeAction.SEND_NOW, "promise_due"))
         create(runner)
@@ -138,138 +148,88 @@ class InitiativeScenarioRunnerVerticalSlices(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.transport_message_count, 1)
         self.assertEqual(result.delivery_count, 1)
 
-    async def test_live_policy_calls_provider_only_for_model_owned_step(self) -> None:
-        class SpyProvider:
-            def __init__(self) -> None:
-                self.calls = []
+    async def test_live_e2e_runs_all_stages_and_delivers_generator_text(self) -> None:
+        class Dialogue:
+            def respond(self, model_input):
+                self.last_input = dict(model_input)
+                return "好，我晚點會接著陪你聊。"
 
-            def generate_json(self, system, user, temperature, max_tokens):
-                self.calls.append((system, user, temperature, max_tokens))
-                return '{"action":"SEND_NOW","reason_code":"context_due"}'
+        class ScriptedProvider:
+            model = "test-live-model"
 
-        fixture = self.fixtures_by_id()["l0_01"]
-        provider = SpyProvider()
+            def __init__(self):
+                self.prompts = []
+
+            def generate_json(self, system, user, temperature, max_output_tokens):
+                self.prompts.append((system, user))
+                payload = json.loads(user)
+                if "candidate_scan" in system:
+                    return json.dumps({
+                        "schema_version": "initiative.world_event_proposal.v1",
+                        "decision_type": "candidate_scan",
+                        "events": [{
+                            "candidate_id": "candidate:1",
+                            "event_type": "commitment",
+                            "summary": "稍後續接剛才的對話",
+                            "evidence_refs": ["turn:u1", "turn:a1"],
+                            "followup_value": "履行已形成的續聊承諾",
+                            "interruption_risk": "low",
+                            "trigger": {
+                                "kind": "time", "earliest_offset_minutes": 0,
+                                "preferred_offset_minutes": 60, "expires_offset_minutes": 120,
+                            },
+                            "confidence": 0.9,
+                            "short_rationale": "對話中有明確的稍後續接承諾",
+                        }],
+                        "no_event_reason": None,
+                    }, ensure_ascii=False)
+                if "candidate_consolidation" in system:
+                    return json.dumps({
+                        "schema_version": "initiative.world_event_consolidation.v1",
+                        "decision_type": "candidate_consolidation",
+                        "accepted_candidate_ids": ["candidate:1"],
+                        "merged_candidates": [], "rejected_candidates": [],
+                        "short_rationale": "承諾仍未完成",
+                    }, ensure_ascii=False)
+                event = payload["runtime"]["active_events"][0]
+                return json.dumps({
+                    "schema_version": "initiative.reappraisal.v1",
+                    "decision_type": "wake_up_reappraisal",
+                    "event_id": event["event_id"], "event_version": event["event_version"],
+                    "action": "SEND_NOW", "reason_code": "followup_still_relevant",
+                    "evidence_refs": ["turn:u1", "turn:a1"],
+                    "next_evaluation_offset_minutes": None,
+                    "short_rationale": "目前適合低壓續接",
+                }, ensure_ascii=False)
+
+            def generate(self, system, user, temperature, max_output_tokens):
+                return "飯煮好了嗎？不急，我只是來把剛才的話題接回來。"
+
+        fixture = self.fixtures_by_id()["core_01_commitment_followup"]
+        provider = ScriptedProvider()
         result = await ScenarioRunnerV02.run_fixture(
-            fixture, live_api=True, provider=provider
+            fixture, live_api=True, provider=provider, dialogue_adapter=Dialogue()
         )
-
+        mapping = result.to_mapping()
         self.assertEqual(result.event.status, EventStatus.COMPLETED)
-        self.assertEqual(len(provider.calls), 1)
-        system_prompt, user_prompt, _, _ = provider.calls[0]
-        combined = f"{system_prompt}\n{user_prompt}".casefold()
+        self.assertEqual(mapping["initiative_message"], "飯煮好了嗎？不急，我只是來把剛才的話題接回來。")
+        self.assertNotEqual(mapping["initiative_message"], result.event.summary)
+        self.assertEqual(
+            [item["stage"] for item in mapping["call_ledger"]],
+            ["dialogue_response", "candidate_scan", "candidate_consolidation", "reappraisal", "generator"],
+        )
+        combined = "\n".join(system + user for system, user in provider.prompts).casefold()
         self.assertNotIn('"oracle"', combined)
-        self.assertNotIn('"expected_', combined)
-        for constraint in fixture.oracle.hard_constraints:
-            self.assertNotIn(constraint.casefold(), combined)
-        trace = result.to_mapping()["traces"][0]
-        self.assertEqual(trace["event_version_before"], 2)
-        self.assertGreater(trace["event_version_after"], trace["event_version_before"])
-        self.assertEqual(trace["decision_record"]["decision_id"], "decision-1")
-        self.assertEqual(trace["delivery_audit"]["status"], "DELIVERED")
-        self.assertEqual(
-            trace["delivery_audit"]["idempotency_key"],
-            f"{result.event.event_id}:send:3",
-        )
-        self.assertTrue(trace["delivery_audit"]["content_hash"].startswith("sha256:"))
-        self.assertEqual(trace["provider_attempts"][0]["attempt"], 1)
-        self.assertIsNone(trace["provider_attempts"][0]["validation_error"])
+        self.assertNotIn('"purpose"', combined)
+        self.assertEqual(mapping["flow_result"], "PASS")
+        self.assertEqual(mapping["human_review"], "PENDING")
 
-    async def test_live_policy_preserves_invalid_attempt_before_successful_retry(self) -> None:
-        class RetryProvider:
-            def __init__(self) -> None:
-                self.outputs = iter((
-                    '{"action":"NOT_ALLOWED","reason_code":"bad"}',
-                    '{"action":"SEND_NOW","reason_code":"context_due"}',
-                ))
-
-            def generate_json(self, *args, **kwargs):
-                return next(self.outputs)
-
-        fixture = self.fixtures_by_id()["l0_01"]
-        result = await ScenarioRunnerV02.run_fixture(
-            fixture, live_api=True, provider=RetryProvider()
-        )
-
-        attempts = result.to_mapping()["traces"][0]["model_decision"]["attempts"]
-        self.assertEqual([item["attempt"] for item in attempts], [1, 2])
-        self.assertIn("unsupported action", attempts[0]["validation_error"])
-        self.assertIsNone(attempts[1]["validation_error"])
-        self.assertNotEqual(attempts[0]["prompt_hash"], attempts[1]["prompt_hash"])
-        self.assertIn("NOT_ALLOWED", attempts[0]["raw_output"])
-        self.assertIn("SEND_NOW", attempts[1]["raw_output"])
-
-    async def test_live_policy_keeps_system_owned_step_deterministic(self) -> None:
-        class FailingIfCalledProvider:
-            def generate_json(self, *args, **kwargs):
-                raise AssertionError("system-owned step must not call provider")
-
-        fixture = self.fixtures_by_id()["l0_04"]
-        result = await ScenarioRunnerV02.run_fixture(
-            fixture, live_api=True, provider=FailingIfCalledProvider()
-        )
-
-        self.assertEqual(result.event.status, EventStatus.EXPIRED)
-        self.assertEqual(result.traces[0].action, InitiativeAction.EXPIRE)
-
-    async def test_live_provider_failure_is_reported_as_error(self) -> None:
-        class BrokenProvider:
-            def generate_json(self, *args, **kwargs):
-                raise OSError("provider unavailable")
-
-        fixture = self.fixtures_by_id()["l0_01"]
-        with self.assertRaisesRegex(LivePolicyError, "live provider call failed") as caught:
-            await ScenarioRunnerV02.run_fixture(
-                fixture, live_api=True, provider=BrokenProvider()
-            )
-        partial = caught.exception.partial_result
-        self.assertIsNotNone(partial)
-        mapping = partial.to_mapping()
-        self.assertEqual(mapping["event_status"], "SCHEDULED")
-        self.assertEqual(mapping["cleanup_snapshot"], {
-            "pending_wakeup_count": 0,
-            "presence_subscription_count": 0,
-            "active_lease_count": 0,
-            "worker_task_count": 0,
-        })
-        self.assertEqual(len(mapping["traces"]), 1)
-        failed_trace = mapping["traces"][0]
-        self.assertIsNone(failed_trace["action"])
-        self.assertIn("provider unavailable", failed_trace["error_message"])
-        self.assertEqual(failed_trace["provider_attempts"][0]["attempt"], 1)
-        self.assertIn(
-            "provider_error: provider unavailable",
-            failed_trace["provider_attempts"][0]["validation_error"],
-        )
-
-    async def test_live_failure_finally_cleans_existing_presence_subscription(self) -> None:
-        class FailAfterWaitingProvider:
-            def __init__(self) -> None:
-                self.calls = 0
-
-            def generate_json(self, *args, **kwargs):
-                self.calls += 1
-                if self.calls == 1:
-                    return (
-                        '{"action":"WAIT_FOR_USER_ACTIVITY",'
-                        '"reason_code":"wait_for_return"}'
-                    )
-                raise OSError("second decision unavailable")
-
-        fixture = self.fixtures_by_id()["l1_02"]
-        with self.assertRaises(LivePolicyError) as caught:
-            await ScenarioRunnerV02.run_fixture(
-                fixture, live_api=True, provider=FailAfterWaitingProvider()
-            )
-
-        partial = caught.exception.partial_result
-        self.assertIsNotNone(partial)
-        self.assertEqual(partial.cleanup.presence_subscription_count, 0)
-        self.assertEqual(partial.cleanup.pending_wakeup_count, 0)
-        self.assertEqual(len(partial.traces), 2)
-        self.assertEqual(
-            partial.traces[0].action, InitiativeAction.WAIT_FOR_USER_ACTIVITY
-        )
-        self.assertIsNotNone(partial.traces[1].error_message)
+    async def test_oracle_mutation_does_not_change_live_runtime(self) -> None:
+        fixture = self.fixtures_by_id()["core_01_commitment_followup"]
+        mutated_oracle = replace(fixture.oracle, expected_action="CANCEL")
+        mutated = replace(fixture, oracle=mutated_oracle)
+        self.assertEqual(fixture.model.to_payload(), mutated.model.to_payload())
+        self.assertEqual(fixture.driver, mutated.driver)
 
 
 if __name__ == "__main__":

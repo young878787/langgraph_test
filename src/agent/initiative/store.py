@@ -12,6 +12,7 @@ from .domain import (
     DomainValidationError,
     EventStatus,
     InitiativeEvent,
+    TERMINAL_STATUSES,
 )
 
 
@@ -70,6 +71,22 @@ class InMemoryInitiativeStore:
 
     def decisions_for(self, event_id: str) -> tuple[DecisionRecord, ...]:
         return tuple(item for item in self._decisions if item.event_id == event_id)
+
+    def events_for_identity(
+        self,
+        isolation_key: tuple[str, str, str, str],
+        *,
+        active_only: bool = False,
+    ) -> tuple[InitiativeEvent, ...]:
+        """Return events inside one isolation namespace without exposing storage internals."""
+
+        events = tuple(
+            event for event in self._events.values()
+            if event.identity.isolation_key == isolation_key
+        )
+        if active_only:
+            events = tuple(event for event in events if event.status not in TERMINAL_STATUSES)
+        return events
 
     def create_delivery(self, attempt: DeliveryAttempt, event: InitiativeEvent) -> None:
         key = event.identity.isolation_key, event.run_id, attempt.idempotency_key
@@ -135,4 +152,3 @@ def event_first_commitment(
             source_turn_id=source_turn_id,
         )
     return activated, expression
-

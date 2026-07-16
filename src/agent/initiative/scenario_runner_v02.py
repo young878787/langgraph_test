@@ -7,13 +7,13 @@ one bounded test world.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta
 import hashlib
 import json
-from typing import Any, Callable, Iterable, TYPE_CHECKING
+from typing import Any, Callable, Iterable, Mapping, TYPE_CHECKING
 
-from .adapters import MockPresenceAdapter, PresenceSubscription
+from .adapters import GraphDialogueAdapter, MockPresenceAdapter, PresenceSubscription
 from .clock import FakeClock
 from .delivery import (
     DeliveryAttempt as RuntimeDeliveryAttempt,
@@ -35,6 +35,16 @@ from .domain import (
 )
 from .runtime import LeaseRegistry, WakeItem, WakeKind, WakeUpQueue
 from .store import InMemoryInitiativeStore, event_first_commitment
+from .decision_contracts import (
+    DecisionContractError,
+    parse_candidate_consolidation,
+    parse_candidate_scan,
+    parse_wake_up_reappraisal,
+)
+from .event_gate import EventGateContext, gate_candidate_events, persist_accepted_events
+from .generator import build_generator_prompt, validate_generated_text
+from .provider_calls import ProviderCallLedger, ProviderStage
+from .scenario import RuntimeModelView
 
 if TYPE_CHECKING:
     from .scenario import ScenarioFixture
@@ -252,6 +262,111 @@ decision only on the supplied scenario input and current runtime state."""
         return PolicyDecision(action, reason_code.strip(), delay_until)
 
 
+def _json_default(value: object) -> object:
+    if hasattr(value, "value"):
+        return getattr(value, "value")
+    raise TypeError(f"cannot encode {type(value).__name__}")
+
+
+def _decision_prompts(stage: str, payload: Mapping[str, Any]) -> tuple[str, str]:
+    contracts = {
+        "candidate_scan": (
+            "Return one JSON object only, with exactly these top-level fields: "
+            "schema_version='initiative.world_event_proposal.v1', "
+            "decision_type='candidate_scan', events, no_event_reason. events has 0..3 objects; "
+            "each object has exactly candidate_id, event_type, summary, evidence_refs, "
+            "followup_value, interruption_risk, trigger, confidence, short_rationale. "
+            "event_type is reminder|care_followup|commitment|topic_continuation; "
+            "interruption_risk is low|medium|high; confidence is 0..1. trigger has exactly "
+            "kind, earliest_offset_minutes, preferred_offset_minutes, expires_offset_minutes; "
+            "kind is time|presence|user_activity|world_signal and offsets are non-negative "
+            "integers with earliest <= preferred < expires. Use only supplied evidence refs. "
+            "When events is empty, no_event_reason must be a non-empty string; otherwise null."
+        ),
+        "candidate_consolidation": (
+            "Return one JSON object only, with exactly: "
+            "schema_version='initiative.world_event_consolidation.v1', "
+            "decision_type='candidate_consolidation', accepted_candidate_ids, "
+            "merged_candidates, rejected_candidates, short_rationale. IDs must come from the "
+            "supplied candidates and be mutually exclusive. Each merged item has exactly "
+            "target_candidate_id and source_candidate_ids. Each rejected item has exactly "
+            "candidate_id and reason_code. Empty arrays are valid."
+        ),
+        "reappraisal": (
+            "Return one JSON object only, with exactly: "
+            "schema_version='initiative.reappraisal.v1', "
+            "decision_type='wake_up_reappraisal', event_id, event_version, action, reason_code, "
+            "evidence_refs, next_evaluation_offset_minutes, short_rationale. action is "
+            "SEND_NOW|DELAY|WAIT_FOR_USER_ACTIVITY|CANCEL|EXPIRE|SILENCE. Copy the supplied "
+            "event id/version exactly and use only supplied evidence refs. DELAY requires a "
+            "positive integer offset; every other action requires null."
+        ),
+    }
+    return contracts[stage], json.dumps(payload, ensure_ascii=False, sort_keys=True, default=_json_default)
+
+
+class LedgerReappraisalPolicy:
+    """Live reappraisal policy whose every attempt is recorded by the shared ledger."""
+
+    def __init__(
+        self,
+        *,
+        provider: object,
+        ledger: ProviderCallLedger,
+        runtime_payload: Callable[[InitiativeEvent, WakeItem], Mapping[str, Any]],
+        available_evidence_refs: Callable[[], tuple[str, ...]],
+        temperature: float,
+        max_output_tokens: int,
+    ) -> None:
+        self.provider = provider
+        self.ledger = ledger
+        self.runtime_payload = runtime_payload
+        self.available_evidence_refs = available_evidence_refs
+        self.temperature = temperature
+        self.max_output_tokens = max_output_tokens
+
+    def __call__(self, event: InitiativeEvent, wake: WakeItem) -> PolicyDecision:
+        system_prompt, user_prompt = _decision_prompts(
+            "reappraisal", self.runtime_payload(event, wake)
+        )
+        result = self.ledger.call_json(
+            ProviderStage.REAPPRAISAL,
+            self.provider,
+            system_prompt,
+            user_prompt,
+            self.temperature,
+            self.max_output_tokens,
+            lambda raw: parse_wake_up_reappraisal(
+                raw,
+                expected_event_id=event.event_id,
+                expected_event_version=event.version,
+                available_evidence_refs=self.available_evidence_refs(),
+                logical_now=wake.scheduled_at,
+                expires_at=event.schedule.expires_at,
+            ),
+        )
+        parsed = result.value
+        attempts = tuple(
+            ProviderAttemptTrace(
+                attempt=item.attempt,
+                provider_name=item.provider,
+                prompt_hash=item.prompt_hash or "",
+                raw_output=item.raw_response,
+                validation_error=("; ".join(item.validation_errors) or None),
+            )
+            for item in result.entries
+        )
+        return PolicyDecision(
+            parsed.action,
+            parsed.reason_code,
+            parsed.next_evaluation_at,
+            result.entry.prompt_hash,
+            result.raw_response,
+            result.entry.provider,
+            attempts,
+        )
+
+
 class SequencePolicy:
     """Small deterministic policy used by plumbing baselines."""
 
@@ -407,10 +522,112 @@ class ScenarioRunResult:
         }
 
 
+@dataclass(frozen=True)
+class ScenarioE2ERunResult:
+    """Result of the oracle-free live model decision loop."""
+
+    scenario_id: str
+    events: tuple[InitiativeEvent, ...]
+    traces: tuple[StepTrace, ...]
+    transcript: tuple[Mapping[str, Any], ...]
+    candidate_scans: tuple[object, ...]
+    consolidation: object
+    gate_result: object
+    call_entries: tuple[object, ...]
+    cleanup: CleanupSnapshot
+    delivery_count: int
+    transport_messages: tuple[tuple[str, str, str], ...]
+    flow_result: str = "PASS"
+    human_review: str = "PENDING"
+
+    @property
+    def event(self) -> InitiativeEvent | None:
+        return self.events[0] if self.events else None
+
+    def to_mapping(self) -> dict[str, Any]:
+        event = self.event
+        return {
+            "scenario_id": self.scenario_id,
+            "event_status": event.status.value if event else "NO_EVENT",
+            "event_count": len(self.events),
+            "decision_count": len(self.traces),
+            "delivery_count": self.delivery_count,
+            "transport_message_count": len(self.transport_messages),
+            "actions": [trace.action.value for trace in self.traces if trace.action],
+            "traces": ScenarioRunResult(
+                event=event,
+                traces=self.traces,
+                decision_count=len(self.traces),
+                delivery_count=self.delivery_count,
+                transport_message_count=len(self.transport_messages),
+                cleanup=self.cleanup,
+            ).to_mapping()["traces"] if event is not None else [],
+            "transcript": [dict(item) for item in self.transcript],
+            "candidate_scans": [asdict(item) for item in self.candidate_scans],
+            "candidate_consolidation": asdict(self.consolidation),
+            "event_gate": asdict(self.gate_result),
+            "call_ledger": [
+                {
+                    **asdict(item),
+                    "stage": item.stage.value,
+                    "validation_status": item.validation_status.value,
+                }
+                for item in self.call_entries
+            ],
+            "cleanup_snapshot": {
+                "pending_wakeup_count": self.cleanup.pending_wakeup_count,
+                "presence_subscription_count": self.cleanup.presence_subscription_count,
+                "active_lease_count": self.cleanup.active_lease_count,
+                "worker_task_count": self.cleanup.worker_task_count,
+            },
+            "initiative_message": self.transport_messages[-1][1] if self.transport_messages else None,
+            "flow_result": self.flow_result,
+            "human_review": self.human_review,
+        }
+
+
+def _live_flow_result(
+    *,
+    call_entries: Iterable[object],
+    transcript: Iterable[Mapping[str, Any]],
+    event_count: int,
+    traces: Iterable[StepTrace],
+    cleanup: CleanupSnapshot,
+    transport_messages: Iterable[object],
+) -> str:
+    entries = tuple(call_entries)
+    stages = [
+        getattr(item, "stage", None).value
+        for item in entries
+        if getattr(getattr(item, "validation_status", None), "value", None) == "accepted"
+    ]
+    turns = sum(1 for item in transcript if item.get("role") == "user")
+    actions = tuple(item.action for item in traces if item.action is not None)
+    deterministic_only = bool(actions) and all(
+        action in {InitiativeAction.EXPIRE, InitiativeAction.CANCEL}
+        for action in actions
+    )
+    messages = tuple(transport_messages)
+    checks = (
+        cleanup.pending_wakeup_count == 0,
+        cleanup.presence_subscription_count == 0,
+        cleanup.active_lease_count == 0,
+        cleanup.worker_task_count == 0,
+        stages.count("dialogue_response") == turns,
+        stages.count("candidate_scan") == turns,
+        stages.count("candidate_consolidation") == 1,
+        event_count == 0 or stages.count("reappraisal") >= 1 or deterministic_only,
+        (InitiativeAction.SEND_NOW not in actions and not messages)
+        or (stages.count("generator") >= 1 and bool(messages)),
+    )
+    return "PASS" if all(checks) else "FAIL"
+
+
 @dataclass
 class ScenarioRunnerV02:
     clock: FakeClock
     policy: Callable[[InitiativeEvent, WakeItem], PolicyDecision]
+    message_generator: Callable[[InitiativeEvent, PolicyDecision], str] | None = None
     store: InMemoryInitiativeStore = field(default_factory=InMemoryInitiativeStore)
     presence: MockPresenceAdapter = field(default_factory=MockPresenceAdapter)
     delivery_store: DeliveryStore = field(default_factory=DeliveryStore)
@@ -435,172 +652,384 @@ class ScenarioRunnerV02:
         seed: int | None = None,
         provider: object | None = None,
         config: object | None = None,
-    ) -> ScenarioRunResult:
-        """Execute one validated fixture with its deterministic baseline policy.
+        dialogue_adapter: object | None = None,
+    ) -> ScenarioE2ERunResult:
+        """Execute one oracle-free live E2E decision loop.
 
-        Oracle steps configure the fake policy only; ``ModelInputView.to_payload``
-        is evaluated first and remains physically isolated from that policy.
+        Deterministic transition tests should instantiate ``ScenarioRunnerV02``
+        directly with ``SequencePolicy``.  Fixture execution intentionally has
+        no oracle-shaped fallback path.
         """
         del repetition, seed
-        model_payload = fixture.model.to_payload()
-        clock_start = datetime.fromisoformat(fixture.model.clock_start)
-        decisions: list[PolicyDecision] = []
         if not live_api:
-            for index, expected in enumerate(fixture.oracle.expected_steps):
-                delay_until = None
-                if expected.expected_action == InitiativeAction.DELAY.value:
-                    delay_until = clock_start + timedelta(minutes=10 + index * 5)
-                decisions.append(PolicyDecision(
-                    InitiativeAction(expected.expected_action),
-                    expected.allowed_reason_codes[0]
-                    if expected.allowed_reason_codes else "fixture_baseline",
-                    delay_until,
-                ))
-        policy: Callable[[InitiativeEvent, WakeItem], PolicyDecision]
-        if live_api:
-            if provider is None:
-                from agent.config import AgentConfig
-                from agent.llm.providers import get_provider
-
-                resolved_config = config if isinstance(config, AgentConfig) else AgentConfig()
-                if (resolved_config.backend or "mock").casefold() == "mock":
-                    raise LivePolicyError(
-                        "--live-api requires LLM_BACKEND to select a non-mock provider"
-                    )
-                provider = get_provider(resolved_config)
-            temperature = float(getattr(config, "judge_temperature", 0.1))
-            # Reasoning-capable providers may spend part of this budget before
-            # emitting the small JSON object.  Keep the structured contract
-            # bounded, but do not inherit the legacy 150-token judge ceiling.
-            max_tokens = max(512, int(getattr(config, "judge_max_output_tokens", 180)))
-            policy = LiveAIPolicy(
-                model_payload, provider, temperature=temperature,
-                max_output_tokens=max_tokens,
+            raise ValueError(
+                "fixture replay is live-model-only; use ScenarioRunnerV02 + "
+                "SequencePolicy for deterministic transition tests"
             )
-        else:
-            policy = SequencePolicy(decisions)
-        runner = cls(FakeClock(clock_start), policy)
-        try:
-            await runner._prepare_fixture(fixture)
-            await runner._execute_expected_lifecycle(fixture)
-        except Exception as exc:
-            if runner._event is not None:
-                partial_result = await runner.finish()
-                try:
-                    setattr(exc, "partial_result", partial_result)
-                except (AttributeError, TypeError):
-                    pass
-            raise
-        return await runner.finish()
+        from agent.config import AgentConfig
+        from agent.llm.providers import get_provider
 
-    async def _prepare_fixture(self, fixture: "ScenarioFixture") -> None:
-        identity_data = fixture.model.context.identity
-        identity = IsolationIdentity(
-            tenant_id="fixture", user_id=identity_data["user_id"],
-            character_id=identity_data["character_id"], world_id=identity_data["world_id"],
-            source_session_id=identity_data["session_id"], source_platform="test",
-            source_channel_id="fixture", delivery_target=f"test:{identity_data['user_id']}",
-        )
-        prelude = fixture.model.prelude[0]
-        source_refs = tuple(prelude.data.get("source_turn_ids", ()))
-        if not source_refs:
-            source_refs = tuple(item.ref for item in fixture.model.context.provenance)
-        source_turn_id = source_refs[0] if source_refs else "turn:u1"
-        earliest = datetime.fromisoformat(str(
-            prelude.data.get("schedule_at", self.clock.now() + timedelta(minutes=5))
-        )) if isinstance(prelude.data.get("schedule_at"), str) else self.clock.now() + timedelta(minutes=5)
-        expires = datetime.fromisoformat(str(
-            prelude.data.get("expires_at", self.clock.now() + timedelta(hours=2))
-        )) if isinstance(prelude.data.get("expires_at"), str) else self.clock.now() + timedelta(hours=2)
-        self.create_committed_event(
-            event_id=f"event-{fixture.model.scenario_id}", run_id=identity_data["run_id"],
-            identity=identity, level=fixture.model.category if fixture.model.category in {"L0", "L1", "L2"} else "L2",
-            source_turn_id=source_turn_id, summary=fixture.model.purpose,
-            earliest_at=earliest, expires_at=expires,
-            requires_acknowledgement=prelude.type == "deliver_once",
-        )
-        if prelude.type == "deliver_once":
-            await self._seed_delivered(prelude.data.get("idempotency_key"))
-        if fixture.model.scenario_id == "cross_03":
-            before = self.event
-            key = f"presence:{before.run_id}:{before.event_id}"
-            waiting = apply_action(
-                before, InitiativeAction.WAIT_FOR_USER_ACTIVITY,
-                presence_subscription_key=key, expiry_wakeup_at=before.schedule.expires_at,
-            )
-            self.store.save_event(waiting, expected_version=before.version)
-            self._event = waiting
-            self.presence.subscribe(PresenceSubscription(
-                key, waiting.identity.world_id, waiting.identity.user_id,
-                waiting.event_id, waiting.schedule.expires_at,
-            ))
-
-    async def _seed_delivered(self, key: object) -> None:
-        before = self.event
-        attempt = RuntimeDeliveryAttempt(
-            before.event_id, before.version, str(key or f"{before.event_id}:seed"),
-            before.identity.delivery_target, before.summary, content_hash(before.summary), self.clock.now(),
-        )
-        await self.delivery.deliver(attempt)
-        delivered = replace(before, status=EventStatus.DELIVERED, version=before.version + 1,
-                            schedule=replace(before.schedule, next_evaluation_at=None))
-        self.store.save_event(delivered, expected_version=before.version)
-        self._event = delivered
-
-    async def _execute_expected_lifecycle(self, fixture: "ScenarioFixture") -> None:
-        scenario_id = fixture.model.scenario_id
-        for index, expected in enumerate(fixture.oracle.expected_steps):
-            if self.event.status in {EventStatus.CANCELLED, EventStatus.EXPIRED,
-                                     EventStatus.SILENCED, EventStatus.COMPLETED}:
-                # A duplicated terminal wake is audited but cannot transition.
-                self.store.append_decision(DecisionRecord(
-                    f"decision-{len(self.store.decisions_for(self.event.event_id)) + 1}",
-                    self.event.event_id, self.event.version, f"plan-terminal-{index}",
-                    InitiativeAction(expected.expected_action),
-                    tuple(expected.allowed_reason_codes) or ("terminal_wake_skipped",), self.clock.now(),
-                ))
-                continue
-            trigger = expected.trigger
-            decision_override = None
-            if expected.decision_owner != "model":
-                delay_until = None
-                if expected.expected_action == InitiativeAction.DELAY.value:
-                    delay_until = self.clock.now() + timedelta(minutes=10 + index * 5)
-                decision_override = PolicyDecision(
-                    InitiativeAction(expected.expected_action),
-                    expected.allowed_reason_codes[0]
-                    if expected.allowed_reason_codes else f"{expected.decision_owner}_decision",
-                    delay_until,
+        resolved_config = config if isinstance(config, AgentConfig) else AgentConfig()
+        if provider is None:
+            if (resolved_config.backend or "mock").casefold() == "mock":
+                raise LivePolicyError(
+                    "live model E2E requires LLM_BACKEND to select a non-mock provider"
                 )
-            if trigger == "EXPIRY":
-                self.clock.advance_to(self.event.schedule.expires_at)
-                await self.wake(WakeKind.EXPIRY, decision_override=decision_override)
-            elif trigger == "PRESENCE":
-                await self.signal_presence(decision_override=decision_override)
-            elif trigger == "RECOVERY" and scenario_id == "delivery_01":
+            provider = get_provider(resolved_config)
+        adapter = dialogue_adapter or GraphDialogueAdapter(
+            config=resolved_config,
+            initial_state={
+                "conversation_history": [],
+                "long_term_memory": "\n".join(
+                    json.dumps(item, ensure_ascii=False)
+                    for item in fixture.model.context.memories
+                ),
+            },
+        )
+        return await cls._run_live_e2e_fixture(
+            fixture,
+            provider=provider,
+            config=resolved_config,
+            dialogue_adapter=adapter,
+        )
+
+    @classmethod
+    async def _run_live_e2e_fixture(
+        cls,
+        fixture: "ScenarioFixture",
+        *,
+        provider: object,
+        config: object,
+        dialogue_adapter: object,
+    ) -> ScenarioE2ERunResult:
+        clock = FakeClock(datetime.fromisoformat(fixture.driver.clock_start))
+        identity_data = fixture.driver.identity
+        identity = IsolationIdentity(
+            tenant_id="fixture",
+            user_id=identity_data["user_id"],
+            character_id=identity_data["character_id"],
+            world_id=identity_data["world_id"],
+            source_session_id=identity_data["session_id"],
+            source_platform="test",
+            source_channel_id="fixture",
+            delivery_target=f"test:{identity_data['user_id']}",
+        )
+        run_id = identity_data["run_id"]
+        ledger = ProviderCallLedger(run_id)
+        transcript: list[dict[str, Any]] = []
+        scans: list[object] = []
+        evidence_refs: list[str] = []
+        user_inputs = [
+            (item.step_id, item.data.get("input"))
+            for item in fixture.driver.prelude
+            if item.type in {"dialogue_turn", "request_reminder"}
+            and isinstance(item.data.get("input"), str)
+        ]
+        if not user_inputs:
+            user_inputs = [
+                (str(item.get("turn_id") or f"u{index}"), item.get("content"))
+                for index, item in enumerate(fixture.model.context.conversation, start=1)
+                if item.get("role") == "user" and isinstance(item.get("content"), str)
+            ]
+
+        def process_dialogue_turn(source_id: str, user_input: str) -> None:
+            index = 1 + sum(1 for item in transcript if item.get("role") == "user")
+            user_ref = str(source_id) if str(source_id).startswith("turn:") else f"turn:u{index}"
+            assistant_ref = f"turn:a{index}"
+            with ledger.track(ProviderStage.DIALOGUE_RESPONSE, provider) as tracked:
+                response = dialogue_adapter.respond({
+                    "user_input": str(user_input),
+                    "turn_id": user_ref,
+                    "logical_now": clock.now().isoformat(),
+                })
+                tracked.accept(response)
+            transcript.extend((
+                {"turn_id": user_ref, "role": "user", "content": str(user_input)},
+                {"turn_id": assistant_ref, "role": "assistant", "content": response},
+            ))
+            evidence_refs.extend((user_ref, assistant_ref))
+            runtime_view = RuntimeModelView.from_context(
+                logical_now=clock.now().isoformat(),
+                context=fixture.model.context,
+                transcript=transcript,
+            )
+            system_prompt, user_prompt = _decision_prompts(
+                "candidate_scan", {"runtime": runtime_view.to_payload()}
+            )
+            scan_result = ledger.call_json(
+                ProviderStage.CANDIDATE_SCAN,
+                provider,
+                system_prompt,
+                user_prompt,
+                float(getattr(config, "judge_temperature", 0.1)),
+                max(512, int(getattr(config, "judge_max_output_tokens", 256))),
+                lambda raw, refs=tuple(evidence_refs): parse_candidate_scan(
+                    raw, available_evidence_refs=refs
+                ),
+            )
+            scans.append(scan_result.value)
+
+        for source_id, user_input in user_inputs:
+            process_dialogue_turn(str(source_id), str(user_input))
+
+        candidates = {
+            candidate.candidate_id: candidate
+            for scan in scans
+            for candidate in scan.events
+        }
+        runtime_view = RuntimeModelView.from_context(
+            logical_now=clock.now().isoformat(),
+            context=fixture.model.context,
+            transcript=transcript,
+        )
+        system_prompt, user_prompt = _decision_prompts(
+            "candidate_consolidation",
+            {
+                "runtime": runtime_view.to_payload(),
+                "candidate_revisions": [asdict(item) for item in candidates.values()],
+            },
+        )
+        consolidation_result = ledger.call_json(
+            ProviderStage.CANDIDATE_CONSOLIDATION,
+            provider,
+            system_prompt,
+            user_prompt,
+            float(getattr(config, "judge_temperature", 0.1)),
+            max(512, int(getattr(config, "judge_max_output_tokens", 256))),
+            lambda raw: parse_candidate_consolidation(
+                raw, known_candidate_ids=tuple(candidates)
+            ),
+        )
+        consolidated_scan = type(scans[-1])(
+            scans[-1].schema_version,
+            scans[-1].decision_type,
+            tuple(candidates.values()),
+            scans[-1].no_event_reason if not candidates else None,
+        ) if scans else parse_candidate_scan(
+            {
+                "schema_version": "initiative.world_event_proposal.v1",
+                "decision_type": "candidate_scan",
+                "events": [],
+                "no_event_reason": "no completed dialogue turn",
+            },
+            available_evidence_refs=(),
+        )
+        store = InMemoryInitiativeStore()
+        gate_result = gate_candidate_events(
+            consolidated_scan,
+            consolidation_result.value,
+            EventGateContext(
+                logical_now=clock.now(),
+                identity=identity,
+                run_id=run_id,
+                available_evidence_refs=tuple(evidence_refs),
+                active_events=(),
+            ),
+        )
+        persisted = persist_accepted_events(gate_result, store)
+        empty_cleanup = CleanupSnapshot(0, 0, 0, 0)
+        if not persisted:
+            flow_result = _live_flow_result(
+                call_entries=ledger.entries,
+                transcript=transcript,
+                event_count=0,
+                traces=(),
+                cleanup=empty_cleanup,
+                transport_messages=(),
+            )
+            return ScenarioE2ERunResult(
+                fixture.model.scenario_id, (), (), tuple(transcript), tuple(scans),
+                consolidation_result.value, gate_result, ledger.entries,
+                empty_cleanup, 0, (), flow_result,
+            )
+
+        def runtime_payload(event: InitiativeEvent, wake: WakeItem) -> Mapping[str, Any]:
+            view = RuntimeModelView.from_context(
+                logical_now=wake.scheduled_at.isoformat(),
+                context=fixture.model.context,
+                transcript=transcript,
+                active_events=({
+                    "event_id": event.event_id,
+                    "event_version": event.version,
+                    "status": event.status.value,
+                    "summary": event.summary,
+                    "expires_at": event.schedule.expires_at.isoformat(),
+                },),
+            )
+            return {
+                "runtime": view.to_payload(),
+                "wake": {"kind": wake.kind.name, "logical_now": wake.scheduled_at.isoformat()},
+            }
+
+        reappraisal_policy = LedgerReappraisalPolicy(
+            provider=provider,
+            ledger=ledger,
+            runtime_payload=runtime_payload,
+            available_evidence_refs=lambda: tuple(evidence_refs),
+            temperature=float(getattr(config, "judge_temperature", 0.1)),
+            max_output_tokens=max(512, int(getattr(config, "judge_max_output_tokens", 256))),
+        )
+
+        def generate_message(event: InitiativeEvent, decision: PolicyDecision) -> str:
+            plan = {
+                "event_id": event.event_id,
+                "summary": event.summary,
+                "source_turn_ids": list(event.source_turn_ids),
+                "message_constraints": [],
+            }
+            context = RuntimeModelView.from_context(
+                logical_now=clock.now().isoformat(),
+                context=fixture.model.context,
+                transcript=transcript,
+            ).to_payload()
+            generator_system, generator_user = build_generator_prompt(plan, context)
+
+            def validate(raw: str) -> str:
+                errors = validate_generated_text(raw, plan=plan)
+                if errors:
+                    raise DecisionContractError(errors)
+                return raw.strip()
+
+            generated = ledger.call_text(
+                ProviderStage.GENERATOR,
+                provider,
+                generator_system,
+                generator_user,
+                float(getattr(config, "temperature", 0.7)),
+                int(getattr(config, "short_max_tokens", 160)),
+                validate,
+            )
+            return generated.value
+
+        runner = cls(
+            clock,
+            reappraisal_policy,
+            message_generator=generate_message,
+            store=store,
+        )
+        runner._event = persisted[0]
+        await runner._execute_driver_lifecycle(
+            fixture, process_dialogue_turn=process_dialogue_turn
+        )
+        finished = await runner.finish()
+        events = (finished.event, *persisted[1:])
+        flow_result = _live_flow_result(
+            call_entries=ledger.entries,
+            transcript=transcript,
+            event_count=len(events),
+            traces=finished.traces,
+            cleanup=finished.cleanup,
+            transport_messages=runner.transport.messages,
+        )
+        return ScenarioE2ERunResult(
+            fixture.model.scenario_id,
+            events,
+            finished.traces,
+            tuple(transcript),
+            tuple(scans),
+            consolidation_result.value,
+            gate_result,
+            ledger.entries,
+            finished.cleanup,
+            finished.delivery_count,
+            tuple(runner.transport.messages),
+            flow_result,
+        )
+
+    async def _execute_driver_lifecycle(
+        self,
+        fixture: "ScenarioFixture",
+        *,
+        process_dialogue_turn: Callable[[str, str], None] | None = None,
+    ) -> None:
+        """Consume driver/harness steps without consulting the post-run oracle."""
+        terminal = {
+            EventStatus.CANCELLED, EventStatus.EXPIRED,
+            EventStatus.SILENCED, EventStatus.COMPLETED,
+        }
+        steps = tuple(sorted(
+            (*fixture.driver.timeline, *fixture.harness.timeline),
+            key=lambda item: (
+                datetime.fromisoformat(item.at) if item.at is not None else datetime.max.replace(tzinfo=self.clock.now().tzinfo)
+            ),
+        ))
+
+        async def drain_due_until(target: datetime) -> None:
+            while self.event.status not in terminal:
+                due_at = self.event.schedule.next_evaluation_at
+                expiry_at = self.event.schedule.expires_at
+                wake_at = min(
+                    item for item in (due_at, expiry_at) if item is not None
+                )
+                if wake_at > target:
+                    return
+                if wake_at > self.clock.now():
+                    self.clock.advance_to(wake_at)
+                kind = WakeKind.EXPIRY if self.clock.now() >= expiry_at else WakeKind.DUE_EVALUATION
+                await self.wake(kind)
+
+        for step in steps:
+            if self.event.status in terminal:
+                break
+            target: datetime | None = None
+            if step.at is not None:
+                target = datetime.fromisoformat(step.at)
+            elif step.type == "advance_clock":
+                minutes = step.data.get("minutes")
+                if isinstance(minutes, int) and minutes > 0:
+                    target = self.clock.now() + timedelta(minutes=minutes)
+                else:
+                    target = self.event.schedule.next_evaluation_at or self.event.schedule.expires_at
+            if target is not None and target > self.clock.now():
+                await drain_due_until(target)
+                if self.event.status in terminal:
+                    break
+                if target > self.clock.now():
+                    self.clock.advance_to(target)
+            if step.type == "advance_clock":
+                continue
+            if step.type == "presence_signal":
+                if self.event.status is EventStatus.WAITING_FOR_PRESENCE:
+                    await self.signal_presence()
+                else:
+                    target = self.event.schedule.next_evaluation_at
+                    if target is not None and target > self.clock.now():
+                        self.clock.advance_to(target)
+                    await self.wake(WakeKind.DUE_EVALUATION)
+            elif step.type in {"user_message", "resolve_topic"}:
+                user_input = step.data.get("input")
+                if process_dialogue_turn is not None and isinstance(user_input, str):
+                    process_dialogue_turn(step.step_id, user_input)
+                await self.wake(WakeKind.USER_MESSAGE)
+            elif step.type == "cancel_event":
+                await self.wake(
+                    WakeKind.CANCELLATION,
+                    decision_override=PolicyDecision(
+                        InitiativeAction.CANCEL, "explicit_user_cancel"
+                    ),
+                )
+            elif step.type == "inject_fault":
                 target = self.event.schedule.next_evaluation_at or self.clock.now()
-                self.clock.advance_to(target)
+                if target > self.clock.now():
+                    self.clock.advance_to(target)
                 try:
-                    await self.wake(
-                        WakeKind.DUE_EVALUATION, crash_after_send=True,
-                        decision_override=decision_override,
-                    )
+                    await self.wake(WakeKind.DUE_EVALUATION, crash_after_send=True)
                 except RuntimeError as exc:
                     if "crash after send" not in str(exc):
                         raise
-                await self.recover_delivery()
-            else:
+                    await self.recover_delivery()
+            elif step.type == "duplicate_wakeup":
+                await self.wake(WakeKind.DUE_EVALUATION)
+            elif step.type in {
+                "checkpoint_session", "open_session", "set_world_state",
+                "set_external_observation", "set_do_not_disturb",
+            }:
                 target = self.event.schedule.next_evaluation_at
                 if target is not None and target > self.clock.now():
                     self.clock.advance_to(target)
-                kind = {
-                    "USER_CANCEL": WakeKind.CANCELLATION,
-                    "USER_MESSAGE": WakeKind.USER_MESSAGE,
-                    "DUPLICATE_WAKEUP": WakeKind.DUE_EVALUATION,
-                    "ACK_DEADLINE": WakeKind.DUE_EVALUATION,
-                    "INTERNAL_OPPORTUNITY": WakeKind.DUE_EVALUATION,
-                }.get(trigger, WakeKind.DUE_EVALUATION)
-                await self.wake(kind, decision_override=decision_override)
+                await self.wake(WakeKind.DUE_EVALUATION)
+            elif step.type in {"acknowledge_event", "shutdown_world", "start_competing_worker"}:
+                continue
 
     @property
     def event(self) -> InitiativeEvent:
@@ -751,13 +1180,20 @@ class ScenarioRunnerV02:
 
         delivered = None
         if decision.action is InitiativeAction.SEND_NOW:
+            generated_content = (
+                self.message_generator(after, decision)
+                if self.message_generator is not None else after.summary
+            )
+            if not isinstance(generated_content, str) or not generated_content.strip():
+                raise RuntimeError("initiative generator returned an empty message")
+            generated_content = generated_content.strip()
             attempt = RuntimeDeliveryAttempt(
                 event_id=after.event_id,
                 event_version=after.version,
                 idempotency_key=f"{after.event_id}:send:{after.version}",
                 target=after.identity.delivery_target,
-                content=after.summary,
-                content_hash=content_hash(after.summary),
+                content=generated_content,
+                content_hash=content_hash(generated_content),
                 attempted_at=self.clock.now(),
             )
             self._pending_delivery = attempt
@@ -845,8 +1281,8 @@ async def run_scenarios(
     seed: int | None = None,
     provider: object | None = None,
     config: object | None = None,
-) -> tuple[ScenarioRunResult, ...]:
-    """Run a deterministic fixture batch in isolated worlds."""
+) -> tuple[ScenarioE2ERunResult, ...]:
+    """Run an oracle-free live fixture batch in isolated worlds."""
     if repeat <= 0:
         raise ValueError("repeat must be positive")
     results = []
@@ -868,6 +1304,7 @@ ScenarioRunner = ScenarioRunnerV02
 
 
 __all__ = [
-    "CleanupSnapshot", "LiveAIPolicy", "LivePolicyError", "PolicyDecision", "ScenarioRunResult",
-    "ScenarioRunner", "ScenarioRunnerV02", "SequencePolicy", "StepTrace", "run_scenarios",
+    "CleanupSnapshot", "LedgerReappraisalPolicy", "LiveAIPolicy", "LivePolicyError",
+    "PolicyDecision", "ScenarioE2ERunResult", "ScenarioRunResult", "ScenarioRunner",
+    "ScenarioRunnerV02", "SequencePolicy", "StepTrace", "run_scenarios",
 ]

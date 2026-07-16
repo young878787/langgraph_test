@@ -32,6 +32,60 @@ class LegacyDialogueAdapter:
         return result
 
 
+class GraphDialogueAdapter:
+    """Run fixture user turns through the project's complete dialogue graph.
+
+    The adapter retains the graph state across turns, while accepting only the
+    expression input needed for the current turn. Initiative scheduling,
+    oracle data, and harness controls cannot be injected through this port.
+    """
+
+    _INPUT_KEYS = {"user_input", "turn_id", "logical_now"}
+    _INITIAL_STATE_KEYS = {
+        "conversation_history", "long_term_memory", "relationship_state",
+        "character_state", "memory_enabled", "mode",
+    }
+
+    def __init__(
+        self,
+        *,
+        config: object | None = None,
+        initial_state: Mapping[str, Any] | None = None,
+    ) -> None:
+        from agent.config import AgentConfig
+        from agent.graph import build_graph, new_state
+
+        self.config = config if isinstance(config, AgentConfig) else AgentConfig()
+        self._graph = build_graph(self.config)
+        self._state = new_state(self.config)
+        seeded = deepcopy(dict(initial_state or {}))
+        unexpected = set(seeded) - self._INITIAL_STATE_KEYS
+        if unexpected:
+            raise ValueError(f"dialogue initial state contains unsupported keys: {sorted(unexpected)}")
+        self._state.update(seeded)
+        self._state["memory_enabled"] = True
+        self._state["mode"] = "continuous"
+
+    def respond(self, model_input: Mapping[str, Any]) -> str:
+        payload = deepcopy(dict(model_input))
+        unexpected = set(payload) - self._INPUT_KEYS
+        if unexpected:
+            raise ValueError(f"dialogue input contains unsupported keys: {sorted(unexpected)}")
+        user_input = payload.get("user_input")
+        if not isinstance(user_input, str) or not user_input.strip():
+            raise ValueError("dialogue input requires non-empty user_input")
+        self._state["user_input"] = user_input.strip()
+        self._state = self._graph.invoke(self._state)
+        response = self._state.get("response")
+        if not isinstance(response, str) or not response.strip():
+            raise RuntimeError("dialogue graph returned an empty response")
+        return response.strip()
+
+    @property
+    def state(self) -> dict[str, Any]:
+        return deepcopy(dict(self._state))
+
+
 class MockSessionAdapter:
     def __init__(self) -> None:
         self._checkpoints: dict[tuple[str, str], dict[str, Any]] = {}
@@ -147,7 +201,7 @@ class MockMessageAdapter:
 
 
 __all__ = [
-    "DialogueAdapter", "LegacyDialogueAdapter", "MockExternalDataAdapter",
+    "DialogueAdapter", "GraphDialogueAdapter", "LegacyDialogueAdapter", "MockExternalDataAdapter",
     "MockMemoryAdapter", "MockMessageAdapter", "MockPresenceAdapter",
     "MockSessionAdapter", "PresenceSubscription", "TransportReceipt",
 ]

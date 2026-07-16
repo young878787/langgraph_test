@@ -39,7 +39,8 @@ class InitiativeV02LoggerTests(unittest.TestCase):
             ):
                 logger.init_logs()
                 trace = {
-                    "result": "PASS",
+                    "flow_result": "PASS",
+                    "human_review": "PENDING",
                     "scenario": {"title": "五分鐘後回來", "category": "L0"},
                     "steps": [{
                         "step_index": 1,
@@ -68,35 +69,48 @@ class InitiativeV02LoggerTests(unittest.TestCase):
                         "status_before": "DUE",
                         "status_after": "COMPLETED",
                         "proactive_message": "驗證 event-first commitment 與準時續接",
-                        "reasoning": [
-                            "使用者留下後續承諾線索：稍後請延續目前話題",
-                            "建立 event-first commitment，來源 turn=turn:u1，預定喚醒=2026-07-13T10:05:00+08:00",
-                            "喚醒觸發=DUE_EVALUATION，事件狀態 DUE -> COMPLETED",
-                            "AI / System 決策=SEND_NOW，原因=event_first_commitment",
-                            "送出主動訊息：驗證 event-first commitment 與準時續接",
+                        "runtime_summary": [
+                            "來源 turn=turn:u1，預定喚醒=2026-07-13T10:05:00+08:00",
+                            "觸發=DUE_EVALUATION，狀態 DUE -> COMPLETED",
+                            "接受動作=SEND_NOW，原因碼=event_first_commitment",
+                            "Delivery=DELIVERED，訊息來源=generator",
                         ],
                     },
                 }
                 logger.log_initiative_trace("run", "l0_01", trace)
                 logger.log_initiative_summary([{
-                    "scenario_id": "l0_01", "status": "PASS", "trace": trace,
+                    "scenario_id": "l0_01", "flow_result": "PASS",
+                    "human_review": "PENDING", "trace": trace,
                 }])
                 content = (log_dir / "prompts.md").read_text(encoding="utf-8")
 
         self.assertIn("### 步驟判斷表", content)
-        self.assertIn("### 主動流程摘要", content)
+        self.assertIn("### Runtime 流程摘要", content)
         self.assertIn("| 來源訊息 | 稍後請延續目前話題 |", content)
         self.assertIn("| 預定觸發 | 2026-07-13T10:05:00+08:00 |", content)
-        self.assertIn("#### AI 主動建立事件的思考流程", content)
-        self.assertIn("- 送出主動訊息：驗證 event-first commitment 與準時續接", content)
+        self.assertIn("#### Runtime 狀態轉移摘要", content)
+        self.assertIn("- Delivery=DELIVERED，訊息來源=generator", content)
+        self.assertIn("### AI 決策紀錄", content)
+        self.assertNotIn("思考流程", content)
+        self.assertNotIn("### Prompt 指紋", content)
         self.assertIn("| 1 | 2026-07-13T10:05:00+08:00 | DUE_EVALUATION | DUE | 2 | SEND_NOW", content)
         self.assertIn("### 最終資源快照", content)
         self.assertIn("| exactly_once | 1 | 1 | PASS | receipt-1 |", content)
-        self.assertIn("| 第一主要動作 | 最終狀態 | Delivery | 失敗 Gate |", content)
-        self.assertIn("| `l0_01` | SEND_NOW | COMPLETED | 1 |", content)
+        self.assertIn("| Flow result | Human review | 測試標題", content)
+        self.assertIn("| **PENDING** | 五分鐘後回來 | `l0_01` | SEND_NOW | COMPLETED | 1 |", content)
 
 
 class InitiativeV02CliTests(unittest.TestCase):
+    def test_select_fixtures_accepts_documented_l0_01_alias(self) -> None:
+        fixtures = cli.load_scenarios(cli.FIXTURE_PATH)
+
+        selected = cli.select_fixtures(fixtures, "l0_01")
+
+        self.assertEqual(
+            [fixture.model.scenario_id for fixture in selected],
+            ["core_01_commitment_followup"],
+        )
+
     def test_mapping_adapter_accepts_dataclass(self) -> None:
         @dataclass
         class Result:
@@ -162,7 +176,10 @@ class InitiativeV02CliTests(unittest.TestCase):
         fixture = cli.load_scenarios(cli.FIXTURE_PATH)[0]
         expected = fixture.oracle.expected_final
         result = {
-            "event": {"status": expected.event_status},
+            "event": {
+                "status": expected.event_status,
+                "summary": "使用者希望稍後續接目前話題",
+            },
             "event_count": expected.event_count,
             "decision_count": expected.decision_count,
             "delivery_count": expected.delivery_count,
@@ -175,6 +192,18 @@ class InitiativeV02CliTests(unittest.TestCase):
                 "active_lease_count": expected.active_lease_count,
                 "worker_task_count": expected.worker_task_count,
             },
+            "initiative_message": "我回來啦，我們繼續剛才的話題吧。",
+            "transcript": [
+                {"role": "user", "content": "稍後再聊"},
+                {"role": "assistant", "content": "好，我等你。"},
+            ],
+            "call_ledger": [
+                {"stage": stage, "validation_status": "accepted", "provider": "SpyProvider"}
+                for stage in (
+                    "dialogue_response", "candidate_scan", "candidate_consolidation",
+                    "reappraisal", "generator",
+                )
+            ],
         }
 
         async def fake_invoke(fixtures, **kwargs):
@@ -197,11 +226,14 @@ class InitiativeV02CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(invoke.await_count, 1)
-        self.assertIn("Replay mode: LIVE_API", output.getvalue())
-        self.assertIn("real AI provider via AgentConfig / LLM_BACKEND", output.getvalue())
+        self.assertIn("Replay mode: LIVE_MODEL_E2E_VIRTUAL_IO", output.getvalue())
+        self.assertIn("virtual clock/session/presence and mock transport", output.getvalue())
         self.assertIn("觸發：2026-07-13T10:05:00+08:00 / - -> SEND_NOW", output.getvalue())
-        self.assertIn("來源訊息：稍後請延續目前話題", output.getvalue())
-        self.assertIn("AI 主動訊息：驗證 event-first commitment 與準時續接", output.getvalue())
+        self.assertIn(
+            "來源訊息：我先去煮飯，五分鐘後回來，我們再繼續聊剛才那件事。",
+            output.getvalue(),
+        )
+        self.assertIn("AI 主動訊息：我回來啦，我們繼續剛才的話題吧。", output.getvalue())
 
     def test_async_main_prints_deterministic_mode(self) -> None:
         fixture = cli.load_scenarios(cli.FIXTURE_PATH)[0]
@@ -223,6 +255,19 @@ class InitiativeV02CliTests(unittest.TestCase):
         error_log.assert_called_once()
         self.assertIn("Replay mode: DETERMINISTIC", output.getvalue())
         self.assertIn("no AI API call", output.getvalue())
+
+    def test_flow_projection_never_falls_back_to_fixture_purpose(self) -> None:
+        fixture = cli.load_scenarios(cli.FIXTURE_PATH)[0]
+
+        flow = cli.initiative_flow_payload(
+            fixture,
+            {"delivery_count": 1},
+            [],
+        )
+
+        self.assertIsNone(flow["event_summary"])
+        self.assertIsNone(flow["proactive_message"])
+        self.assertNotIn(fixture.model.purpose, json.dumps(flow, ensure_ascii=False))
 
     def test_async_main_initializes_before_runner_and_preserves_prior_results_on_error(self) -> None:
         fixtures = cli.load_scenarios(cli.FIXTURE_PATH)[:2]
@@ -251,6 +296,18 @@ class InitiativeV02CliTests(unittest.TestCase):
                     "active_lease_count": expected.active_lease_count,
                     "worker_task_count": expected.worker_task_count,
                 },
+                "initiative_message": "我們繼續剛才的話題吧。",
+                "transcript": [
+                    {"role": "user", "content": "稍後再聊"},
+                    {"role": "assistant", "content": "好，我等你。"},
+                ],
+                "call_ledger": [
+                    {"stage": stage, "validation_status": "accepted", "provider": "SpyProvider"}
+                    for stage in (
+                        "dialogue_response", "candidate_scan", "candidate_consolidation",
+                        "reappraisal", "generator",
+                    )
+                ],
             }]
 
         args = cli.parse_args(["--all", "--live-api", "--seed", "41"])
@@ -271,12 +328,17 @@ class InitiativeV02CliTests(unittest.TestCase):
         self.assertEqual(call_order, [
             "init", f"run:{fixtures[0].model.scenario_id}", f"run:{fixtures[1].model.scenario_id}",
         ])
-        self.assertEqual([item[2]["result"] for item in traces], ["PASS", "ERROR"])
+        self.assertEqual([item[2]["flow_result"] for item in traces], ["PASS", "ERROR"])
         self.assertEqual([len(items) for items in summaries], [1, 2])
-        self.assertEqual(summaries[-1][0]["status"], "PASS")
-        self.assertEqual(summaries[-1][1]["status"], "ERROR")
+        self.assertEqual(summaries[-1][0]["flow_result"], "PASS")
+        self.assertEqual(summaries[-1][0]["human_review"], "PENDING")
+        self.assertEqual(summaries[-1][1]["flow_result"], "ERROR")
+        self.assertEqual(summaries[-1][1]["human_review"], "PENDING")
         self.assertEqual(summaries[-1][1]["trace"]["scenario"]["run_seed"], 41)
-        self.assertEqual(summaries[-1][1]["trace"]["scenario"]["mode"], "LIVE_API")
+        self.assertEqual(
+            summaries[-1][1]["trace"]["scenario"]["mode"],
+            "LIVE_MODEL_E2E_VIRTUAL_IO",
+        )
         error_log.assert_called_once()
 
     def test_error_payload_preserves_partial_result_steps_cleanup_and_provider(self) -> None:
