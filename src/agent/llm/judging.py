@@ -19,29 +19,11 @@ VALID_CATEGORIES = (
 VALID_INTENT_TARGETS = ("assistant", "user", "third_party", "none", "unknown")
 
 
-def _format_keyword_signals(state: AgentState) -> str:
-    signals = state.get("keyword_signals", [])
-    if not signals:
-        return "無"
-
-    parts = []
-    for signal in signals[:8]:
-        category = signal.get("category", "unknown")
-        trigger = signal.get("trigger", "")
-        parts.append(f"{category}:{trigger}")
-    omitted = len(signals) - len(parts)
-    if omitted > 0:
-        parts.append(f"...另 {omitted} 個")
-    return "；".join(parts)
-
-
 def build_judge_prompts(state: AgentState) -> tuple[str, str]:
     emotion = state.get("emotion", 0.0)
     traits = state.get("traits", {})
     conversation_history = state.get("conversation_history", [])
     task_status = format_task_status_for_prompt(state.get("last_task_status", {}))
-    keyword_signals = _format_keyword_signals(state)
-    keyword_confidence = state.get("keyword_confidence", "none")
 
     traits_text = "無"
     if traits:
@@ -92,17 +74,17 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
         "  state_delta_suggestion 中的 key 包含 mood, confidence, embarrassment, tension, intimacy 等，數值範圍為 -1.0 到 1.0 (建議微調)。",
         "",
         "【分類規則】",
-        "  - 關鍵字只是 evidence，不是最終判決。若關鍵字與完整語境衝突，必須以語境為準。",
+        "  - 以完整語境與可信任務事實判斷，不要只靠單一字詞決定分類。",
         "  - 若一句話同時有多重意圖，請標 ambiguous=true，並選擇最能代表本輪回應義務的 category。",
         "  - 若稱讚語句帶有挖苦、反問、前後矛盾，請標 sarcasm_possible=true，通常不要歸類為 praise。",
-        "  - creative_task：要求 AI 創作（寫詩、寫故事、寫程式、畫畫）。",
+        "  - creative_task：要求 AI 直接產出新的創作成果。",
         "  - task_request：要求 AI 做具體任務（幫忙、教學、查詢）。",
         "    ⚠『在意我』『喜歡我』『是不是關心我』→ 不是請求，是 flirt/praise",
         "  - questioning：質疑 AI 的能力、誠信。",
-        "  - negative_feedback：直接批評、辱罵 (對應 hostile/boundary)。",
+        "  - negative_feedback：直接批評或辱罵 (對應 hostile/boundary)。",
         "  - sensitive_topic：涉及身體、外觀等敏感話題 (對應 boundary/concern)。",
-        "  - praise：稱讚 AI（厲害、可愛、好棒）",
-        "    ⚠ 若使用者稱讚的內容在對話歷史中不存在，不可歸類為 praise，應歸類為 questioning。",
+        "  - praise：對 AI 或其實際成果表達正面評價。",
+        "    ⚠ 任務事實若明確標示沒有產出，不得假設成果存在；但不要因此替使用者決定敵意或挖苦意圖。",
         "  - flirt：撩 AI、試探感情",
         "  - farewell：告別、道晚安",
         "  - normal：一般閒聊",
@@ -117,8 +99,6 @@ def build_judge_prompts(state: AgentState) -> tuple[str, str]:
     user_lines = [
         f"上一段對話：\n{history_context}" if history_context else "（尚無對話歷史）",
         f"使用者現在說：{state.get('user_input', '')}",
-        f"Keyword evidence：{keyword_signals}",
-        f"Keyword confidence：{keyword_confidence}",
         f"當前情緒值：{emotion:.3f}（-1=冷靜, 1=激動）",
         f"人格特質：{traits_text}",
         f"上一個任務狀態：{task_status or '無'}",

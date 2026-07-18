@@ -32,6 +32,60 @@ from agent.scenario_runner import CONTINUOUS_SCENARIO
 from agent.logger import init_logs, log_error, log_prompt
 
 
+def _finalize_streamed_response(
+    state: dict,
+    raw_response: str,
+    config: AgentConfig,
+    provider: object,
+    system_prompt: str,
+    user_prompt: str,
+    conversation_history: list[dict[str, str]],
+    max_output_tokens: int,
+):
+    """Apply the same post-stream correctness policy as the graph response node."""
+    from agent.llm.output_parser import clean_response, smart_truncate
+    from agent.llm.validators import finalize_response
+    from agent.nodes.response import coerce_plain_response
+
+    def _prepare(value: str) -> str:
+        cleaned = clean_response(value)
+        if not cleaned:
+            return ""
+        return smart_truncate(coerce_plain_response(cleaned), max_output_tokens)
+
+    def _retry(correction: str) -> str:
+        retry_prompt = f"{user_prompt}\n\nCorrective instruction: {correction}"
+        if conversation_history:
+            retry_raw = provider.generate_with_history(
+                system_prompt,
+                retry_prompt,
+                config.temperature,
+                conversation_history,
+                max_output_tokens,
+            )
+        else:
+            retry_raw = provider.generate(
+                system_prompt,
+                retry_prompt,
+                config.temperature,
+                max_output_tokens,
+            )
+        return _prepare(retry_raw or "")
+
+    finalized = finalize_response(state, _prepare(raw_response), config, retry=_retry)
+    telemetry = {
+        "valid": finalized.validation.valid,
+        "reason": finalized.validation.reason,
+        "rejection_reason": finalized.rejection_reason,
+        "retry_count": finalized.retry_count,
+        "fallback_reason": finalized.fallback_reason,
+        "fallback_template_id": finalized.fallback_template_id,
+        "style_score": finalized.style.score,
+        "style_signals": list(finalized.style.signals),
+    }
+    return finalized.response, telemetry
+
+
 def _fmt_emotion_bar(value: float) -> str:
     num_fill = max(0, min(10, int((value + 1.0) / 2.0 * 10)))
     bar = "█" * num_fill + "░" * (10 - num_fill)
@@ -257,9 +311,6 @@ def interactive_chat():
                 from agent.llm.providers import get_provider
                 from agent.llm.prompting import build_prompts, format_provider_history_preview
                 from agent.nodes.writeback import writeback
-                from agent.nodes.response import coerce_plain_response
-                from agent.llm.validators import is_on_strategy, fallback_response
-                from agent.llm.output_parser import smart_truncate
 
                 state = graph.invoke(state)
 
@@ -303,20 +354,21 @@ def interactive_chat():
                 state["total_ms"] = total_ms
                 state["max_tokens"] = max_output_tokens
 
-                from agent.llm.providers import clean_response
-                full_response = clean_response(full_response)
-                if full_response:
-                    full_response = coerce_plain_response(full_response)
-                    full_response = smart_truncate(full_response, max_output_tokens)
-
-                response_length = state.get("response_length", "medium")
-                min_len = {"short": 1, "medium": 3, "long": 10, "long_long": 20}.get(response_length, 3)
-                if not full_response or len(full_response.strip()) < min_len:
-                    full_response = fallback_response(state)
-                    state["fallback_used"] = True
-                elif not is_on_strategy(state, full_response, config):
-                    full_response = fallback_response(state)
-                    state["fallback_used"] = True
+                finalized_response, response_validation = _finalize_streamed_response(
+                    state,
+                    full_response,
+                    config,
+                    provider,
+                    system_prompt,
+                    user_prompt,
+                    provider_history,
+                    max_output_tokens,
+                )
+                if response_validation["retry_count"] or response_validation["fallback_reason"]:
+                    print(f"\n↪️ 修正後回覆: {finalized_response}", end="")
+                full_response = finalized_response
+                state["response_validation"] = response_validation
+                state["fallback_used"] = bool(response_validation["fallback_reason"])
 
                 print()
                 state["response"] = full_response
@@ -437,9 +489,6 @@ def continuous_chat_mode():
                 from agent.llm.providers import get_provider
                 from agent.llm.prompting import build_prompts, format_provider_history_preview
                 from agent.nodes.writeback import writeback
-                from agent.nodes.response import coerce_plain_response
-                from agent.llm.validators import is_on_strategy, fallback_response
-                from agent.llm.output_parser import smart_truncate
 
                 state = graph.invoke(state)
 
@@ -485,20 +534,21 @@ def continuous_chat_mode():
                 state["total_ms"] = total_ms
                 state["max_tokens"] = max_output_tokens
 
-                from agent.llm.providers import clean_response
-                full_response = clean_response(full_response)
-                if full_response:
-                    full_response = coerce_plain_response(full_response)
-                    full_response = smart_truncate(full_response, max_output_tokens)
-
-                response_length = state.get("response_length", "medium")
-                min_len = {"short": 1, "medium": 3, "long": 10, "long_long": 20}.get(response_length, 3)
-                if not full_response or len(full_response.strip()) < min_len:
-                    full_response = fallback_response(state)
-                    state["fallback_used"] = True
-                elif not is_on_strategy(state, full_response, config):
-                    full_response = fallback_response(state)
-                    state["fallback_used"] = True
+                finalized_response, response_validation = _finalize_streamed_response(
+                    state,
+                    full_response,
+                    config,
+                    provider,
+                    system_prompt,
+                    user_prompt,
+                    provider_history,
+                    max_output_tokens,
+                )
+                if response_validation["retry_count"] or response_validation["fallback_reason"]:
+                    print(f"\n↪️ 修正後回覆: {finalized_response}", end="")
+                full_response = finalized_response
+                state["response_validation"] = response_validation
+                state["fallback_used"] = bool(response_validation["fallback_reason"])
 
                 print()
                 state["response"] = full_response

@@ -1,8 +1,19 @@
 # Keyword 依賴、回覆收斂與 Judge 降級路徑修正計劃
 
 日期：2026-07-12  
-狀態：分析與實作計劃，尚未修改 runtime  
+狀態：Phase 0–5 已完成首輪實作；live backend 與多樣性 baseline 尚待量測
 範圍：`judge → emotion / stance / tone → response → writeback` 對話主鏈
+
+## 實作紀錄（2026-07-12）
+
+- response hard invariant、soft style score、corrective retry 與 fallback telemetry 已統一；graph 與兩條 streaming 路徑共用同一 finalize policy。
+- task fact 已支援 `true / false / unknown` 與 provenance，不再由 stance 單獨推測成果存在。
+- 正常 Judge prompt 已移除 keyword evidence；成功 appraisal 不再被 fake-praise 規則覆寫。
+- Judge 兩次失敗後仍走 bounded rule fallback，並標示 low confidence、reason；emotion reducer 對此採 decay-only。
+- canonical response cleaner 已集中至 `output_parser.py`，provider 共用同一 helper，plain text 不再按 persona keyword、中文段落或最後三行裁切。
+- replay 已加入 `keyword-dependency` corpus 與 Judge source、fallback、emotion policy、task provenance、validator telemetry。
+- focused contract tests、既有 emotion architecture tests、decision-only replay 與 `py_compile` 已通過。
+- 尚未執行實際 JSON Judge backend failure injection、完整 app mode、跨多 seeds 的 correctness/diversity baseline；這些仍是正式量化 Definition of Done 前的必要驗證。
 
 ## 1. 結論先行
 

@@ -8,7 +8,7 @@ from agent.config import AgentConfig
 from agent.state import AgentState
 from agent.llm.prompting import build_prompts, format_provider_history_preview
 from agent.llm.providers import get_provider
-from agent.llm.validators import is_on_strategy, fallback_response
+from agent.llm.validators import finalize_response
 from agent.llm.output_parser import smart_truncate
 from agent.logger import log_error
 
@@ -78,7 +78,6 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
     provider_history = conversation_history if memory_enabled else []
     provider_history_count = len(provider_history)
     provider_history_preview = format_provider_history_preview(provider_history)
-    fallback_used = False
 
     response_length = state.get("response_length", "medium")
     if response_length == "long":
@@ -94,7 +93,6 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
         temperature = config.temperature
         max_output_tokens = config.medium_max_tokens
 
-    min_len = {"short": 2, "medium": 5, "long": 15, "long_long": 20}.get(response_length, 5)
     if memory_enabled and conversation_history:
         raw_response = _safe_call_with_history(
             provider,
@@ -113,32 +111,37 @@ def generate_response(state: AgentState, config: AgentConfig) -> AgentState:
     else:
         response = ""
 
-    if not response or len(response.strip()) < min_len:
-        response = fallback_response(state)
-        fallback_used = True
-    elif not is_on_strategy(state, response, config):
+    def _retry(correction: str) -> str:
+        retry_prompt = f"{user_prompt}\n\nCorrective instruction: {correction}"
         if memory_enabled and conversation_history:
-            raw_response = _safe_call_with_history(provider, system_prompt, user_prompt, config.retry_temperature, conversation_history, max_output_tokens)
+            retry_raw = _safe_call_with_history(provider, system_prompt, retry_prompt, temperature, conversation_history, max_output_tokens)
         else:
-            raw_response = _safe_call(provider, system_prompt, user_prompt, config.retry_temperature, max_output_tokens)
-            
-        if raw_response:
-            response = coerce_plain_response(raw_response)
-            response = smart_truncate(response, max_output_tokens)
-            
-        if not response or len(response.strip()) < min_len:
-            response = fallback_response(state)
-            fallback_used = True
-        elif not is_on_strategy(state, response, config):
-            response = fallback_response(state)
-            fallback_used = True
+            retry_raw = _safe_call(provider, system_prompt, retry_prompt, temperature, max_output_tokens)
+        if not retry_raw:
+            return ""
+        return smart_truncate(coerce_plain_response(retry_raw), max_output_tokens)
+
+    finalized = finalize_response(state, response, config, retry=_retry)
+    response = finalized.response
+    if finalized.raw_retry_response:
+        raw_response = finalized.raw_retry_response
 
     total_ms = (time.perf_counter() - t_start) * 1000
 
     return {
         "response": response,
         "system_prompt": system_prompt,
-        "fallback_used": fallback_used,
+        "fallback_used": bool(finalized.fallback_reason),
+        "response_validation": {
+            "valid": finalized.validation.valid,
+            "reason": finalized.validation.reason,
+            "rejection_reason": finalized.rejection_reason,
+            "retry_count": finalized.retry_count,
+            "fallback_reason": finalized.fallback_reason,
+            "fallback_template_id": finalized.fallback_template_id,
+            "style_score": finalized.style.score,
+            "style_signals": list(finalized.style.signals),
+        },
         "max_tokens": max_output_tokens,
         "ttfb_ms": None,
         "total_ms": total_ms,

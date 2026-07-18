@@ -1,138 +1,107 @@
 from __future__ import annotations
-"""
-輸出解析器：過濾模型輸出中的思考過程、除雜訊，只保留最終回應。
-針對 gemma4 等推理模型，它們可能會輸出 chain-of-thought 或思考過程。
+
+"""Canonical response-output parsing helpers.
+
+Cleaning is intentionally structural: it removes reasoning/wrapper metadata but
+does not use language, persona phrases, or line position to guess which answer
+the model meant to return.
 """
 
+import json
 import re
 
 
 def smart_truncate(text: str, max_tokens: int) -> str:
-    """
-    智能截斷：在完整句子邊界處截斷，避免斷句。
-
-    優先在句末標點（。！？!?…~～）處截斷；
-    若無句末標點，則退而求其次在停頓標點（，,、；;：:）處截斷；
-    最終 fallback 為硬截斷（理論上不應走到這步）。
-
-    Args:
-        text: 待截斷的文字
-        max_tokens: 目標最大 token 數（作為字元上限，中文環境 1 token≈1~2 字元）
-
-    Returns:
-        截斷後、以完整句子結尾的字串
-    """
+    """Truncate at a sentence or pause boundary when one is available."""
     if not text or len(text) <= max_tokens:
         return text
 
-    sentence_end = re.compile(r'[。！？!?…~～]+')
-    boundaries = [(m.end(), m.group()) for m in sentence_end.finditer(text)]
-    for end, _ in reversed(boundaries):
-        if end <= max_tokens:
-            return text[:end].rstrip()
+    sentence_end = re.compile(r"[。！？!?…~～]+")
+    for match in reversed(list(sentence_end.finditer(text))):
+        if match.end() <= max_tokens:
+            return text[: match.end()].rstrip()
 
-    pause = re.compile(r'[，,、；;：:）\)】」』》〉]')
-    boundaries2 = [(m.end(), m.group()) for m in pause.finditer(text)]
-    for end, _ in reversed(boundaries2):
-        if end <= max_tokens:
-            return text[:end].rstrip()
+    pause = re.compile(r"[，,、；;：:）\)】」』》〉]")
+    for match in reversed(list(pause.finditer(text))):
+        if match.end() <= max_tokens:
+            return text[: match.end()].rstrip()
 
     return text[:max_tokens].rstrip()
 
 
+_JSON_RESPONSE_KEYS = ("final_answer", "response", "answer", "content", "text", "line")
+_METADATA_LINE = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:"
+    r"initial\s+reaction|refining\s+for\s+constraints|"
+    r"(?:draft|attempt)\s*\d+\s*(?:notes?|metadata)|"
+    r"traditional\s+chinese\s*\?|[^\n]{1,40}\s+included\?"
+    r")\s*[:：]?\s*(?:yes|no)?\s*$",
+    re.IGNORECASE,
+)
+_DRAFT_PREFIX = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:\*\s*)?(?:draft|attempt)\s*\d+\s*[:：]\s*(?:\*\s*)?",
+    re.IGNORECASE,
+)
+
+
+def _unwrap_known_json(text: str) -> str | None:
+    """Unwrap a known response object; preserve unknown JSON structures."""
+    candidate = text
+    fence = re.fullmatch(r"\s*```(?:json|text)?\s*(.*?)\s*```\s*", text, re.DOTALL | re.IGNORECASE)
+    if fence:
+        candidate = fence.group(1).strip()
+
+    try:
+        parsed = json.loads(candidate)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+    if isinstance(parsed, dict):
+        for key in _JSON_RESPONSE_KEYS:
+            value = parsed.get(key)
+            if isinstance(value, str):
+                return value.strip()
+    # JSON may be consumed by a caller that expects its original schema.
+    return candidate.strip()
+
+
 def clean_response(raw_response: str, state: dict | None = None) -> str:
-    """
-    清理模型原始輸出，只保留最終回應。
+    """Remove structural model metadata while conservatively preserving text.
 
-    Args:
-        raw_response: 模型的原始輸出文字
-        state: 當前狀態（可選），用於根據策略調整清理邏輯
-
-    Returns:
-        清理後的最終回應字串
+    ``state`` remains accepted for API compatibility, but response cleaning is
+    deliberately independent of persona/routing state.
     """
+    del state
     if not raw_response:
         return ""
 
-    text = raw_response.strip()
+    text = re.sub(r"<think\b[^>]*>.*?</think\s*>", "", raw_response, flags=re.DOTALL | re.IGNORECASE)
+    text = text.strip()
+    if not text:
+        return ""
 
-    # 1. 移除 <think>...</think> 標籤及其內容（常見於推理模型）
-    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    json_result = _unwrap_known_json(text)
+    if json_result is not None:
+        return json_result
 
-    # 2. 移除 Markdown 格式的思考過程（如 *Initial reaction:*、*Draft 1:* 等）
-    #    匹配以 * 開頭，後跟 *Label:* 格式的行
-    text = re.sub(r'^\s*\*.*?\*.*$', '', text, flags=re.MULTILINE)
+    # Markdown fences are wrappers only when they enclose the whole response.
+    fence = re.fullmatch(r"\s*```(?:text|markdown)?\s*(.*?)\s*```\s*", text, re.DOTALL | re.IGNORECASE)
+    if fence:
+        text = fence.group(1)
 
-    # 3. 移除角色設定重述（模型重複 system prompt 的內容）
-    #    特徵：以 "Severe personality flaws" 或 "Stubborn, refuses" 等開頭的段落
-    personality_patterns = [
-        r'^(Severe|Severely)\s+(personality\s+)?flaws.*?(\n|$)',
-        r'^(Stubborn|Refuses\s+to\s+admit|Makes\s+excuses|Occasional\s+lying|Rambles).*?(\n|$)',
-        r'^(Your\s+)?behavior\s+(features|characteristics):.*?(\n|$)',
-        r'^(You\s+are\s+a\s+)?(severely\s+)?flawed\s+AI\s+assistant.*?(\n|$)',
-    ]
-    for pattern in personality_patterns:
-        text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.MULTILINE)
+    kept_lines: list[str] = []
+    for raw_line in text.splitlines():
+        if _METADATA_LINE.match(raw_line):
+            continue
+        line = _DRAFT_PREFIX.sub("", raw_line).rstrip()
+        if re.fullmatch(r"\s*[-=]{3,}\s*", line):
+            continue
+        kept_lines.append(line)
 
-    # 4. 移除檢查清單（如 "哼 included? Yes."、"Traditional Chinese? Yes."）
-    text = re.sub(r'^\s*\*\s*["\']?\w+["\']?\s*(included|included\?|Yes|No)\s*[:\?]?\s*.*$', '', text, flags=re.MULTILINE)
-    text = re.sub(r'^\s*["\']\w+["\']\s*(included|Yes|No)\s*[:\?]?\s*.*$', '', text, flags=re.MULTILINE)
-
-    # 5. 移除分隔線（如 "---" 或 "----"）
-    text = re.sub(r'^\s*[-]{3,}\s*$', '', text, flags=re.MULTILINE)
-
-    # 6. 移除 "Draft X:" 或 "Attempt X:" 等標記
-    text = re.sub(r'^\s*(Draft|Attempt)\s*\d+\s*[:：].*$', '', text, flags=re.MULTILINE)
-
-    # 7. 移除 "Refining for constraints:" 等標記
-    text = re.sub(r'^\s*\*?\s*Refining\s+for\s+constraints.*$', '', text, flags=re.MULTILINE)
-    text = re.sub(r'^\s*\*?\s*Initial\s+reaction.*$', '', text, flags=re.MULTILINE)
-
-    # 8. 移除空行和多餘空白
-    lines = [line.strip() for line in text.split('\n') if line.strip()]
-
-    # 9. 如果還有很多行，嘗試找出最像「最終回應」的部分
-    #    策略：找最後幾行中，包含傲嬌關鍵詞（哼、笨蛋、才不是）的句子
-    if len(lines) > 3:
-        # 從最後一行往前找，找到第一個包含傲嬌特徵的行
-        tsundere_keywords = ['哼', '笨蛋', '才不是', '我才沒有', ' idiot', 'Hmph']
-        for i in range(len(lines) - 1, -1, -1):
-            if any(kw in lines[i] for kw in tsundere_keywords):
-                # 找到後，取這一行及其後續行（最多3行）
-                lines = lines[i:i + 3]
-                break
-
-    # 10. 重新組合
-    result = ' '.join(lines)
-
-    return result.strip()
+    # Keep paragraphs and line ordering. Collapse only excessive blank space.
+    result = "\n".join(kept_lines).strip()
+    return re.sub(r"\n{3,}", "\n\n", result)
 
 
 def is_valid_response(response: str, min_length: int = 5) -> bool:
-    """
-    檢查清理後的回應是否有效。
-    """
     return bool(response and len(response.strip()) >= min_length)
-
-
-if __name__ == "__main__":
-    # 測試範例
-    test_output = """
-    Severe personality flaws, specifically "Super Tsundere".
-    Stubborn, refuses to admit defeat, makes excuses, occasional lying, rambles/goes off-topic, cares about the user's reaction but denies it.
-    
-    *   *Initial reaction:* Denial. I didn't get it wrong; the user is just not understanding.
-    *   *Draft 1:* 哼！我才不是笨蛋！是你太笨了所以看不懂我的答案吧！我才沒有答錯，這只是另一種解釋方式而已！
-    *   *Refining for constraints:* Needs to be 3-4 sentences. Must avoid "sorry." Must be Traditional Chinese.
-    
-    *   *Draft 2:* 哼！你在說誰是笨蛋啊，笨蛋！我才沒有答錯，是你根本沒看懂我的高深邏輯吧！我才沒有在在意你怎麼想，快點給我閉嘴！
-    
-    *   "哼" included? Yes.
-    *   "笨蛋" included? Yes.
-    *   Traditional Chinese? Yes.
-    """
-    
-    cleaned = clean_response(test_output)
-    print("清理後的回應：")
-    print(cleaned)
-    print(f"\n長度：{len(cleaned)} 字")

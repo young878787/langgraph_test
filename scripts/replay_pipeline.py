@@ -33,6 +33,16 @@ ARCHITECTURE_SCENARIO = [
     "不要再拿我的外表開玩笑。",
 ]
 
+KEYWORD_DEPENDENCY_SCENARIO = [
+    "我要睡了，但先回答最後一題：月亮為什麼會有盈虧？",
+    "你明明寫得很好。",
+    "這個 small 改得很好。",
+    "我不是說你很爛，是在描述那個產品。",
+    "真的假的，你確定嗎？",
+    "我不確定這件事，請誠實說明你知道與不知道的部分。",
+    "第一行是問題背景，第二行才是問題；請用多行回答，不必加角色口頭禪。",
+]
+
 
 def _preview(text: str, limit: int = 34) -> str:
     text = " ".join(text.split())
@@ -48,6 +58,8 @@ def _scenario_inputs(name: str, text: list[str]) -> list[str]:
         return list(SCENARIOS)
     if name == "architecture":
         return list(ARCHITECTURE_SCENARIO)
+    if name == "keyword-dependency":
+        return list(KEYWORD_DEPENDENCY_SCENARIO)
     return list(CONTINUOUS_SCENARIO)
 
 
@@ -83,7 +95,8 @@ def _run_turn(
     state["user_input"] = user_input
 
     state.update(judge_input(state, config))
-    if should_apply_emotion_event(state):
+    emotion_event_requested = should_apply_emotion_event(state)
+    if emotion_event_requested:
         state.update(update_emotion(state, config))
     else:
         state.update(tick_emotion(state, config))
@@ -102,7 +115,15 @@ def _run_turn(
 
     row = {
         "input": _preview(user_input),
+        "classifier": state.get("classifier_category", ""),
         "category": state.get("category", ""),
+        "judge_source": state.get("judge_source", "unknown"),
+        "judge_fallback": str(
+            state.get("judge_fallback_reason")
+            or state.get("fallback_reason")
+            or state.get("judge_error")
+            or ""
+        ),
         "goal": state.get("response_goal", ""),
         "stance": state.get("action_stance", ""),
         "flow": state.get("response_flow", ""),
@@ -118,6 +139,29 @@ def _run_turn(
         "projection": json.dumps(state.get("expression_projection", {}), ensure_ascii=False, sort_keys=True),
         "transition": json.dumps(state.get("state_transition_reason", {}), ensure_ascii=False, sort_keys=True),
         "warnings": json.dumps(state.get("event_analysis", {}).get("validation_warnings", []), ensure_ascii=False),
+        "emotion_policy": (
+            f"requested={emotion_event_requested};"
+            f"applied={state.get('state_transition_reason', {}).get('kind', 'unknown')};"
+            f"base={bool(state.get('state_transition_reason', {}).get('base_delta'))};"
+            f"suggested={bool(state.get('state_transition_reason', {}).get('llm_delta'))}"
+        ),
+        "task_fact": json.dumps(state.get("last_task_status", {}), ensure_ascii=False, sort_keys=True),
+        "task_provenance": str(
+            state.get("last_task_status", {}).get("evidence_source")
+            or state.get("last_task_status", {}).get("reason")
+            or "unknown"
+        ),
+        "validator": json.dumps(
+            state.get("validator_telemetry")
+            or state.get("response_validation")
+            or {
+                "reason": state.get("response_validation_reason", ""),
+                "retry_count": state.get("response_retry_count", 0),
+                "fallback_reason": state.get("response_fallback_reason", ""),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
     }
 
     state.update(_minimal_writeback(state, response))
@@ -125,15 +169,17 @@ def _run_turn(
 
 
 def _print_table(rows: Iterable[dict[str, str]]) -> None:
-    headers = ["#", "input", "category", "goal", "stance", "flow", "task", "tone"]
-    widths = [3, 36, 16, 24, 24, 22, 6, 30]
+    headers = ["#", "input", "classifier", "category", "source", "goal", "stance", "flow", "task", "tone"]
+    widths = [3, 36, 16, 16, 8, 24, 24, 22, 6, 30]
     print(" | ".join(header.ljust(width) for header, width in zip(headers, widths)))
     print("-+-".join("-" * width for width in widths))
     for index, row in enumerate(rows, start=1):
         values = [
             str(index),
             row["input"],
+            row["classifier"],
             row["category"],
+            row["judge_source"],
             row["goal"],
             row["stance"],
             row["flow"],
@@ -148,10 +194,15 @@ def _print_verbose(rows: Iterable[dict[str, str]]) -> None:
         print()
         print(f"Turn {index}: {row['input']}")
         print(f"  appraisal: event={row['event']} risk={row['risk']} relation={row['relation']} warnings={row['warnings']}")
+        print(f"  judge: classifier={row['classifier']} final={row['category']} source={row['judge_source']} fallback={row['judge_fallback'] or 'none'}")
+        print(f"  routing: goal={row['goal']} stance={row['stance']} flow={row['flow']} tone={row['tone']} reason={row['reason']}")
         print(f"  state: emotion={row['emotion']} diff={row['diff']}")
+        print(f"  emotion_policy: {row['emotion_policy']}")
         print(f"  transition: {row['transition']}")
         print(f"  resolved: {row['resolved']}")
         print(f"  projection: {row['projection']}")
+        print(f"  task_fact: provenance={row['task_provenance']} value={row['task_fact']}")
+        print(f"  validator: {row['validator']}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -160,7 +211,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--scenario",
-        choices=("continuous", "simple", "architecture"),
+        choices=("continuous", "simple", "architecture", "keyword-dependency"),
         default="continuous",
         help="Built-in scenario to replay when --text is not provided.",
     )

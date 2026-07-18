@@ -58,6 +58,12 @@ PROJECTION_SCALE = 2.5
 
 
 def should_apply_emotion_event(state: AgentState) -> bool:
+    event_analysis = state.get("event_analysis", {})
+    if (
+        state.get("judge_source") == "rule"
+        or event_analysis.get("appraisal_confidence") == "low"
+    ):
+        return False
     return not (
         state.get("category", "normal") == "normal"
         and len(state.get("user_input", "")) < 5

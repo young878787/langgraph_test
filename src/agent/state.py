@@ -150,6 +150,8 @@ class AgentState(TypedDict, total=False):
     mode: str
     reasoning_model: bool
     fallback_used: bool
+    response_validation: Dict[str, object]
+    artifact_observation: Dict[str, object]
     response_length: ResponseLength
     max_tokens: int
     ttfb_ms: float
@@ -200,6 +202,8 @@ def initial_state(config: AgentConfig) -> AgentState:
         "mode": "single",
         "reasoning_model": config.reasoning_model,
         "fallback_used": False,
+        "response_validation": {},
+        "artifact_observation": {},
         "response_length": "medium",
         "character_state": {
             "mood": 0.55,

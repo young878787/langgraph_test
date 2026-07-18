@@ -13,82 +13,7 @@ import re
 
 from agent.config import AgentConfig
 from agent.logger import log_error
-
-
-def clean_response(raw_response: str) -> str:
-    if not raw_response:
-        return ""
-
-    cleaned = re.sub(r'<think>.*?</think>', '', raw_response, flags=re.DOTALL).strip()
-
-    # 如果去掉 <think> 後，內容包含合法的 JSON 物件，就直接提取並回傳，避免後續中文過濾破壞結構
-    start = cleaned.find('{')
-    end = cleaned.rfind('}')
-    if start != -1 and end != -1 and end > start:
-        candidate = cleaned[start:end+1]
-        try:
-            json.loads(candidate)
-            return candidate
-        except json.JSONDecodeError:
-            pass
-
-    lines = cleaned.split('\n')
-    cleaned_lines = []
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if stripped.startswith('*'):
-            continue
-        if re.search(r'included\?\s*(Yes|No)', stripped, re.IGNORECASE):
-            continue
-        if re.match(r'^[-=]{3,}$', stripped):
-            continue
-        if re.match(r'^(Severe|Stubborn|Awkward|Thorns)', stripped):
-            continue
-        cleaned_lines.append(stripped)
-
-    if not cleaned_lines:
-        return raw_response.strip()
-
-    result = ""
-
-    draft_pattern = re.search(r'\*\s*\*Draft\s*\d+\:\*\s*(.+?)(?=\n\s*\n|\Z)', raw_response, re.DOTALL)
-    if draft_pattern:
-        draft_content = draft_pattern.group(1).strip()
-        draft_lines = [line.strip() for line in draft_content.split('\n') if line.strip()]
-        if draft_lines:
-            result = draft_lines[-1]
-            if len(result) < 10 and len(draft_lines) > 1:
-                result = ' '.join(draft_lines[-2:])
-
-    if not result:
-        chinese_lines = [line for line in cleaned_lines if re.search(r'[\u4e00-\u9fff]', line)]
-        if chinese_lines:
-            last_chinese = []
-            for line in reversed(cleaned_lines):
-                if re.search(r'[\u4e00-\u9fff]', line):
-                    last_chinese.insert(0, line)
-                elif last_chinese:
-                    break
-            result = ' '.join(last_chinese)
-
-    if not result:
-        for line in cleaned_lines:
-            quote_match = re.search(r'["「](.*?)["」]', line, re.DOTALL)
-            if quote_match:
-                result = quote_match.group(1).strip()
-                break
-
-    if not result:
-        last_lines = cleaned_lines[-3:] if len(cleaned_lines) >= 3 else cleaned_lines
-        result = ' '.join(last_lines)
-
-    result = re.sub(r'^[\*\-\s]+', '', result)
-    result = re.sub(r'[\*\-]$', '', result)
-
-    return result.strip() if result else raw_response.strip()
+from agent.llm.output_parser import clean_response
 
 
 class LLMProvider:
@@ -477,10 +402,6 @@ class GoogleAIStudioProvider(LLMProvider):
         except Exception as e:
             if not full_text:
                 yield f"[串流失敗: {str(e)}]"
-
-        cleaned = clean_response(full_text)
-        if cleaned and cleaned != full_text:
-            yield cleaned
 
     def generate_with_history(
         self,
